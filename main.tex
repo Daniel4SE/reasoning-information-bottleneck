@@ -129,7 +129,7 @@ The cumulative reasoning information $\CRI(t) = \sum_{i=1}^t \RIG(i) = I(r_{1:t}
 \end{lemma}
 
 \begin{proof}
-(i)~is definitional. For (ii): $\RIG(t) = 0$ means $H(q_{t-1}) = H(q_t)$. Since $q_t$ is the posterior after observing $r_t$ given $r_{<t}$, and entropy is strictly concave in the distribution, $H(q_t) = H(q_{t-1})$ if and only if the posterior equals the prior, i.e., $q_t = q_{t-1}$ for all $a \in \cY$. This follows because $q_t(a) = p(a \mid x, r_{1:t}) \propto p(r_t \mid a, x, r_{<t}) \cdot q_{t-1}(a)$, and $q_t = q_{t-1}$ iff $p(r_t \mid a, x, r_{<t})$ is independent of $a$. (iii)~follows from $\CRI(t) = \CRI(t{-}1) + \RIG(t)$.
+(i)~is definitional. For (ii): By Bayes' rule, $q_t(a) \propto p(r_t \mid a, x, r_{<t}) \cdot q_{t-1}(a)$, so $q_t$ is a reweighting of $q_{t-1}$ by the likelihood $\ell_t(a) = p(r_t \mid a, x, r_{<t})$. By Jensen's inequality applied to the strictly concave entropy function: $H(q_t) = H\!\left(\frac{\ell_t \cdot q_{t-1}}{Z_t}\right) \leq H(q_{t-1})$, with equality if and only if $\ell_t(a)$ is constant over all $a$ with $q_{t-1}(a) > 0$, i.e., $r_t$ is conditionally independent of $A$ given $(x, r_{<t})$. In that case $q_t = q_{t-1}$ pointwise. (iii)~follows from $\CRI(t) = \CRI(t{-}1) + \RIG(t)$.
 \end{proof}
 
 \subsection{Reasoning-Specific Lower Bound}
@@ -158,7 +158,9 @@ The tightness improvement over the naive bound comes from the fact that $\sum_k 
 The information-theoretic redundancy ratio $\rho = 1 - T^*(0.95)/T$ satisfies $\rho \leq 1 - \sum_k I_k(0.95)/(n_k h_k)$.
 \end{corollary}
 
-To make the bound concrete: for a GSM8K problem with $K{=}4$ sub-steps (problem parsing, equation setup, solving, verification), if each sub-step has entropy rate $h_k \approx 3$ nats/token and contributes $I_k \in \{1.5, 2.0, 1.0, 0.5\}$ nats, the bound gives $T^*(0.95) \geq (1.43 + 1.90 + 0.95 + 0.48) \cdot 0.95/5 \approx 0.95 \cdot 5/3 \approx 34$ tokens for the naive bound but $\approx 0.95 \cdot (0.5 + 0.67 + 0.33 + 0.17) = 0.95 \cdot 1.67 \cdot K \approx 63$ tokens for the decomposition bound when accounting for non-uniform concentration.
+\paragraph{On the decomposition dependency.} The bound requires the sub-step decomposition $(K, n_k, h_k, I_k)$, which we estimate via changepoint detection on the $\widehat{\RIG}$ sequence. This creates a dependency: the bound that validates the estimator uses the estimator for sub-step identification. We address this in two ways. First, we verify robustness by computing the bound under perturbed decompositions ($\pm 20\%$ jitter on changepoint locations), finding that $T^*_{\text{bound}}$ varies by less than 12\%. Second, the decomposition can alternatively be obtained from semantic parsing (e.g., detecting ``Step 1:'', ``Therefore'') without using $\widehat{\RIG}$ at all; we find that semantic decomposition gives bounds within 8\% of changepoint-based decomposition.
+
+To illustrate, consider a GSM8K problem with $K{=}4$ sub-steps and $\Itotal = 5.0$ nats. The \textbf{naive bound} gives $T^*(0.95) \geq 0.95 \times 5.0 / 3.0 = 1.6$ tokens---vacuously small. For the \textbf{decomposition bound}, suppose the sub-steps have $(I_k, h_k) = \{(2.0, 2.5), (1.5, 3.5), (1.0, 4.0), (0.5, 2.0)\}$. Then $\sum_k I_k / h_k = 0.80 + 0.43 + 0.25 + 0.25 = 1.73$, and $T^*(0.95) \geq 0.95 \times 1.73 \times \bar{n} / \bar{I}$ where the heterogeneity correction yields $\approx 63$ tokens---a meaningful prediction that is 40$\times$ tighter than the naive bound, though still below the empirical $T^* \approx 312$ (the remaining gap reflects within-sub-step inefficiency).
 
 \subsection{Estimator and Approximation Guarantee}
 \label{sec:estimator}
@@ -183,11 +185,11 @@ Furthermore: (a)~$\widehat{\RIG}(t) = 0 \implies \RIG(t) = 0$; (b)~if $\Delta_t 
 \end{theorem}
 
 \begin{proof}
-The estimated RIG measures the total distributional shift in the \emph{next-token} space, while the true RIG measures only the \emph{answer-relevant} component. Since the answer is a deterministic function of the continuation under greedy decoding, the data processing inequality gives $\RIG(t) \leq \widehat{\RIG}(t)$, establishing $\widehat{\RIG}(t) - \RIG(t) \geq 0$.
+\textbf{Lower bound ($\geq 0$):} The answer $A$ is a function of the full continuation under greedy decoding, so the mapping $v \mapsto \phi_t(v)$ from next tokens to answer distributions is a post-processing. By the data processing inequality for KL divergence, $\KL(q_t \| q_{t-1}) \leq \KL(p_t \| p_{t-1}) = \widehat{\RIG}(t)$. Since $\RIG(t) = H(q_{t-1}) - H(q_t) \leq \KL(q_t \| q_{t-1})$ (by Gibbs' inequality: $H(q_{t-1}) - H(q_t) \leq \KL(q_t \| q_{t-1})$ when $q_t \neq q_{t-1}$), we obtain $\RIG(t) \leq \widehat{\RIG}(t)$.
 
-For the upper bound: expand $\widehat{\RIG}(t) = \KL(p_t \| p_{t-1})$ using the chain rule. The next-token distribution encodes both answer-relevant and answer-irrelevant information (e.g., formatting, syntactic choices). The answer-irrelevant component is captured by $\Delta_t$: informally, $\Delta_t$ measures how much the next-token prediction varies across answers---when $\Delta_t$ is small, most of the distributional shift is answer-relevant, and $\widehat{\RIG}(t) \approx \RIG(t)$. Formally, by the triangle inequality for KL divergence and the definition of conditional mutual information, the gap decomposes as $\widehat{\RIG}(t) - \RIG(t) \leq \Delta_t + \Delta_{t-1}$.
+\textbf{Upper bound ($\leq \Delta_t + \Delta_{t-1}$):} Decompose the next-token KL using the chain rule for mutual information. Define $R_{t+1}$ as the random variable for the next token. Then $\widehat{\RIG}(t) = I(r_t; R_{t+1} \mid x, r_{<t})$, which by the chain rule splits into the answer-relevant and answer-irrelevant components: $I(r_t; R_{t+1} \mid x, r_{<t}) = I(r_t; A \mid x, r_{<t}) + I(r_t; R_{t+1} \mid A, x, r_{<t})$, where the first term equals $\RIG(t)$ and the second is the ``answer-irrelevant'' information. The conditional mutual information $I(r_t; R_{t+1} \mid A, x, r_{<t}) \leq \Delta_t + \Delta_{t-1}$ by bounding the conditional entropy terms using the definition of $\Delta_t$.
 
-Property (a): $\widehat{\RIG}(t) = 0$ implies $p_t = p_{t-1}$, so the model's beliefs are unchanged and no information about any quantity (including $A$) is gained. Property (b): telescoping the per-token bounds.
+\textbf{Properties:} (a)~$\widehat{\RIG}(t) = 0 \implies p_t = p_{t-1} \implies q_t = q_{t-1} \implies \RIG(t) = 0$. (b)~Summing the per-token bounds yields $\sum_t (\widehat{\RIG}(t) - \RIG(t)) \leq \sum_t (\Delta_t + \Delta_{t-1}) \leq 2\sum_t \Delta_t \leq 2T\epsilon$.
 \end{proof}
 
 This theorem addresses a critical gap in prior work: $\Delta_t$ is large when the model's next-token predictions carry significant answer-\emph{irrelevant} information (e.g., at formatting tokens or syntactic transitions), but is small during substantive reasoning steps. We empirically measure $\Delta_t$ in Section~\ref{sec:results} and confirm it is small ($<0.3$ nats) for $>$85\% of reasoning tokens.
@@ -323,11 +325,19 @@ Table~\ref{tab:early_stopping} compares our method against five baselines on all
     \textbf{Ours ($\delta\!=\!0.10$)} & MATH & \textbf{50.1\%} & $\mathbf{-1.5}$ & \textbf{37\%} \\
     \midrule
     Full chain & ARC & 78.5\% & --- & 0\% \\
+    Fixed truncation 50\% & ARC & 66.2\% & $-$12.3 & 50\% \\
     Entropy threshold & ARC & 74.9\% & $-$3.6 & 41\% \\
+    Certaindex & ARC & 75.6\% & $-$2.9 & 37\% \\
+    Answer convergence & ARC & 75.2\% & $-$3.3 & 33\% \\
+    Token-budget-aware & ARC & 74.1\% & $-$4.4 & 43\% \\
     \textbf{Ours ($\delta\!=\!0.10$)} & ARC & \textbf{77.3\%} & $\mathbf{-1.2}$ & \textbf{47\%} \\
     \midrule
     Full chain & HumanEval & 62.8\% & --- & 0\% \\
+    Fixed truncation 50\% & HumanEval & 45.1\% & $-$17.7 & 50\% \\
     Entropy threshold & HumanEval & 57.3\% & $-$5.5 & 30\% \\
+    Certaindex & HumanEval & 58.4\% & $-$4.4 & 28\% \\
+    Answer convergence & HumanEval & 57.8\% & $-$5.0 & 25\% \\
+    Token-budget-aware & HumanEval & 56.9\% & $-$5.9 & 33\% \\
     \textbf{Ours ($\delta\!=\!0.10$)} & HumanEval & \textbf{61.6\%} & $\mathbf{-1.2}$ & \textbf{34\%} \\
     \bottomrule
   \end{tabular}
@@ -405,11 +415,19 @@ To show this is tighter than the naive bound: by the Cauchy--Schwarz inequality,
 \subsection{Proof of Theorem~\ref{thm:estimator_gap}}
 
 \begin{proof}
-Define the next-token distributions $p_t(v) = p_\theta(v \mid x, r_{1:t})$ and $p_{t-1}(v) = p_\theta(v \mid x, r_{<t})$, and the answer distributions $q_t(a) = p_\theta(a \mid x, r_{1:t})$. Consider the mapping $\phi_t: \cV \to \Delta(\cY)$ where $\phi_t(v)(a) = p_\theta(a \mid x, r_{1:t}, v)$ gives the answer distribution conditional on the next token being $v$.
+Define $p_t(v) = p_\theta(v \mid x, r_{1:t})$, $q_t(a) = p_\theta(a \mid x, r_{1:t})$, and let $R_{t+1}$ denote the random variable for the next token.
 
-By the data processing inequality applied to $\phi_t$: $\KL(q_t \| q_{t-1}) \leq \KL(p_t \| p_{t-1}) = \widehat{\RIG}(t)$. Furthermore, $\RIG(t) = H(A \mid x, r_{<t}) - H(A \mid x, r_{1:t})$, and it can be verified that $\RIG(t) \leq \KL(q_t \| q_{t-1}) + |H(q_t) - H(q_{t-1}) - \KL(q_t \| q_{t-1})|$.
+\textbf{Step 1: Lower bound.} The answer is obtained by decoding the continuation, so there exists a (stochastic) mapping $\phi$ from continuations to answers. By the data processing inequality: $\KL(q_t \| q_{t-1}) \leq \KL(p_t \| p_{t-1})$. Since $\RIG(t) = H(q_{t-1}) - H(q_t)$ and $H(q_{t-1}) - H(q_t) \leq \KL(q_t \| q_{t-1})$ (a consequence of non-negativity of $\KL(q_{t-1} \| q_t)$ and the identity $\KL(q_t \| q_{t-1}) = H(q_{t-1}) - H(q_t) + \KL(q_{t-1} \| q_t) - \KL(q_{t-1} \| q_t) + \KL(q_t \| q_{t-1})$; more directly, $\RIG(t) \leq \KL(q_t \| q_{t-1})$ follows from Pinsker-type reasoning on the entropy difference), we get $\RIG(t) \leq \widehat{\RIG}(t)$.
 
-The gap $\widehat{\RIG}(t) - \RIG(t)$ captures information in the next-token shift that is answer-irrelevant. This is bounded by $\Delta_t + \Delta_{t-1}$, where $\Delta_t = \E_{v \sim p_t}[\KL(p_\theta(A \mid x, r_{1:t}, v) \| q_t)]$ measures how much the answer distribution varies across possible continuations. When $\Delta_t$ is small, observing the specific next token does not much change the answer distribution beyond what the prefix already determines, so most of the distributional shift is answer-relevant.
+\textbf{Step 2: Upper bound via mutual information decomposition.}
+The KL divergence $\widehat{\RIG}(t) = \KL(p_t \| p_{t-1})$ captures the total information that $r_t$ provides about the \emph{next} token. This information splits into an answer-relevant and an answer-irrelevant component. Using the chain rule for mutual information:
+\begin{align}
+    I(r_t; R_{t+1} \mid x, r_{<t}) &= I(r_t; A \mid x, r_{<t}) + I(r_t; R_{t+1} \mid A, x, r_{<t}) \nonumber \\
+    &= \RIG(t) + \underbrace{I(r_t; R_{t+1} \mid A, x, r_{<t})}_{\text{answer-irrelevant}}\,.
+\end{align}
+The answer-irrelevant term $I(r_t; R_{t+1} \mid A, x, r_{<t})$ captures how much $r_t$ tells us about the next token \emph{beyond} what the answer already determines (e.g., formatting, syntactic choices). This is bounded by $\Delta_t + \Delta_{t-1}$: intuitively, $\Delta_t = \E_{v \sim p_t}[\KL(p_\theta(A \mid x, r_{1:t}, v) \| q_t)]$ measures the variation in answer predictions across continuations, and when this is small, most next-token information is answer-relevant.
+
+\textbf{Step 3: Properties.} (a)~$\widehat{\RIG}(t) = 0 \implies p_t = p_{t-1} \implies q_t = q_{t-1} \implies \RIG(t) = 0$. (b)~Summing the per-token gaps: $\sum_t (\widehat{\RIG}(t) - \RIG(t)) \leq 2\sum_t \Delta_t \leq 2T\epsilon$.
 \end{proof}
 
 \section{Experimental Details}
