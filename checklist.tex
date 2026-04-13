@@ -3,86 +3,67 @@
 \begin{enumerate}
 
 \item {\bf Claims}
-    \item[] Question: Do the main claims made in the abstract and introduction accurately reflect the paper's contributions and scope?
     \item[] Answer: \answerYes{}
-    \item[] Justification: The abstract and introduction (Section~\ref{sec:intro}) clearly state four contributions: the RIG metric (Section~\ref{sec:rig}), the lower bound theorem (Theorem~\ref{thm:lower_bound}), the three-phase information structure (Proposition~\ref{prop:phases} and Section~\ref{sec:results}), and the information-guided early stopping method (Section~\ref{sec:stopping}). All claims are supported by theoretical proofs and empirical validation. Limitations are explicitly discussed in Section~\ref{sec:conclusion}.
+    \item[] Justification: The abstract and introduction state three contributions: the RIG metric with reasoning-decomposition bound (Theorem~\ref{thm:lower_bound}), the estimator approximation guarantee (Theorem~\ref{thm:estimator_gap}), and the three-phase structure with early stopping (Proposition~\ref{prop:phases}). All claims are supported by proofs and experiments. Limitations are discussed in Section~\ref{sec:conclusion}.
 
 \item {\bf Limitations}
-    \item[] Question: Does the paper discuss the limitations of the work performed by the authors?
     \item[] Answer: \answerYes{}
-    \item[] Justification: Section~\ref{sec:conclusion} discusses key limitations: (1) the RIG estimator uses a proxy based on next-token KL divergence rather than the true answer distribution, (2) experiments are restricted to greedy decoding, (3) the stationarity assumption in Theorem~\ref{thm:lower_bound} is approximate for finite-length chains, and (4) experiments use 7B models; scaling behavior to larger models remains to be validated.
+    \item[] Justification: Section~\ref{sec:conclusion} discusses four limitations: proxy estimator dependence on $\Delta_t$, restriction to greedy decoding on 7B models, heuristic sub-step decomposition, and post-hoc nature of the analysis.
 
 \item {\bf Theory assumptions and proofs}
-    \item[] Question: For each theoretical result, does the paper provide the full set of assumptions and a complete (and correct) proof?
     \item[] Answer: \answerYes{}
-    \item[] Justification: Theorem~\ref{thm:lower_bound} states its assumptions (entropy rate existence, finite mutual information) and provides a proof sketch in Section~\ref{sec:bound} with a complete proof in Appendix~\ref{app:proof}. Proposition~\ref{prop:phases} clearly states its modeling assumption (unimodal relevance profile). Corollary~\ref{cor:redundancy} follows directly from Theorem~\ref{thm:lower_bound}. The connection between the RIG estimator and the true RIG is discussed in Proposition~\ref{prop:rig_bound} with stated assumptions.
+    \item[] Justification: Theorem~\ref{thm:lower_bound} assumes sub-step decomposition structure and provides full proof in Appendix~\ref{app:proofs}. Theorem~\ref{thm:estimator_gap} assumes greedy decoding and defines the coupling divergence $\Delta_t$ explicitly. Proposition~\ref{prop:phases} is stated as an empirical finding verified by changepoint detection ($p < 0.01$). All theorems are numbered and cross-referenced.
 
     \item {\bf Experimental result reproducibility}
-    \item[] Question: Does the paper fully disclose all the information needed to reproduce the main experimental results of the paper to the extent that it affects the main claims and/or conclusions of the paper (regardless of whether the code and data are provided or not)?
     \item[] Answer: \answerYes{}
-    \item[] Justification: Section~\ref{sec:experiments} specifies model names, quantization details, and dataset configurations. Appendix~\ref{app:details} provides complete details on hardware, RIG estimation procedure, phase detection algorithm, and all hyperparameters. The early stopping method is fully specified by Equation~\eqref{eq:stopping}.
-
+    \item[] Justification: Section~\ref{sec:experiments} specifies models, quantization, and datasets. Appendix~\ref{app:details} provides hardware, RIG computation procedure, sub-step decomposition method, $\Delta_t$ measurement protocol, and all hyperparameters. Code is provided as supplementary material.
 
 \item {\bf Open access to data and code}
-    \item[] Question: Does the paper provide open access to the data and code, with sufficient instructions to faithfully reproduce the main experimental results, as described in supplemental material?
     \item[] Answer: \answerYes{}
-    \item[] Justification: We will release all experiment code (trace collection, RIG analysis, early stopping evaluation, and figure generation scripts) as supplementary material. All datasets used (GSM8K, MATH, ARC-Challenge, HumanEval) are publicly available. Model weights are publicly accessible from HuggingFace.
-
+    \item[] Justification: All experiment code is released as supplementary material. All datasets (GSM8K, MATH, ARC, HumanEval) and model weights are publicly available.
 
 \item {\bf Experimental setting/details}
-    \item[] Question: Does the paper specify all the training and test details (e.g., data splits, hyperparameters, how they were chosen, type of optimizer) necessary to understand the results?
     \item[] Answer: \answerYes{}
-    \item[] Justification: Our method is training-free (analysis of inference-time behavior only). Section~\ref{sec:experiments} and Appendix~\ref{app:details} specify all inference settings: greedy decoding, 4-bit quantization, maximum generation length, window size $w=20$, warm-up $t_{\text{warm}}=30$, and threshold $\delta$ values. Sensitivity analysis over $\delta$ is reported.
+    \item[] Justification: Our method is training-free. All inference settings are specified in Section~\ref{sec:experiments} and Appendix~\ref{app:details}: greedy decoding, 4-bit quantization, $w{=}20$, $t_{\text{warm}}{=}30$, $\delta{=}0.10$. Ablation over $\delta$ is reported in Table~\ref{tab:ablation}.
 
 \item {\bf Experiment statistical significance}
-    \item[] Question: Does the paper report error bars suitably and correctly defined or other appropriate information about the statistical significance of the experiments?
     \item[] Answer: \answerYes{}
-    \item[] Justification: Figures report shaded regions indicating standard error across test examples. Table~\ref{tab:redundancy} includes standard deviations for the redundancy ratio. We use sufficiently large sample sizes (200--1319 examples per dataset) to ensure statistical reliability.
+    \item[] Justification: Figures include error bands (standard error). Phase boundaries are validated with Bayesian changepoint detection ($p < 0.01$). Sample sizes are large (164--1319 per dataset). Ablation study characterizes sensitivity.
 
 \item {\bf Experiments compute resources}
-    \item[] Question: For each experiment, does the paper provide sufficient information on the computer resources (type of compute workers, memory, time of execution) needed to reproduce the experiments?
     \item[] Answer: \answerYes{}
-    \item[] Justification: Appendix~\ref{app:details} specifies the hardware (Apple M-series Pro/Max, 32--64GB unified memory), framework (MLX with 4-bit quantization), and approximate runtime per experiment. Notably, all experiments are designed to run on consumer hardware without GPU servers.
-    
-\item {\bf Code of ethics}
-    \item[] Question: Does the research conducted in the paper conform, in every respect, with the NeurIPS Code of Ethics \url{https://neurips.cc/public/EthicsGuidelines}?
-    \item[] Answer: \answerYes{}
-    \item[] Justification: This work is a theoretical and empirical analysis of reasoning efficiency in language models. It does not involve human subjects, personal data, or dual-use concerns. All models and datasets used are publicly available.
+    \item[] Justification: Appendix~\ref{app:details} specifies Apple M-series Pro/Max, 32--64GB unified memory, MLX framework. Approximate runtime per experiment is reported.
 
+\item {\bf Code of ethics}
+    \item[] Answer: \answerYes{}
+    \item[] Justification: This work analyzes reasoning efficiency without human subjects or personal data. All models and datasets are publicly available.
 
 \item {\bf Broader impacts}
-    \item[] Question: Does the paper discuss both potential positive societal impacts and negative societal impacts of the work performed?
     \item[] Answer: \answerYes{}
-    \item[] Justification: The primary positive impact is reducing the computational cost and carbon footprint of LLM inference through principled reasoning compression. We do not foresee direct negative societal impacts from an information-theoretic analysis framework; however, early stopping could potentially degrade reasoning quality in safety-critical applications if thresholds are set too aggressively, which we note as a consideration.
-    
+    \item[] Justification: Positive: reducing inference cost and carbon footprint. Potential concern: aggressive early stopping could degrade quality in safety-critical applications, noted as a consideration.
+
 \item {\bf Safeguards}
-    \item[] Question: Does the paper describe safeguards that have been put in place for responsible release of data or models that have a high risk for misuse (e.g., pre-trained language models, image generators, or scraped datasets)?
     \item[] Answer: \answerNA{}
-    \item[] Justification: This paper does not release new models or datasets. The released code is an analysis toolkit, not a generative system, and poses no misuse risk.
+    \item[] Justification: No new models or datasets released. Analysis code poses no misuse risk.
 
 \item {\bf Licenses for existing assets}
-    \item[] Question: Are the creators or original owners of assets (e.g., code, data, models), used in the paper, properly credited and are the license and terms of use explicitly mentioned and properly respected?
     \item[] Answer: \answerYes{}
-    \item[] Justification: All datasets are cited: GSM8K~\citep{gsm8k}, MATH~\citep{math}. Model creators (DeepSeek-AI, Alibaba Qwen team) are cited. GSM8K is released under MIT license; MATH under MIT license; ARC under CC-BY-SA; HumanEval under MIT license.
+    \item[] Justification: All datasets cited: GSM8K~\citep{gsm8k} (MIT), MATH~\citep{math} (MIT), ARC~\citep{clark2018arc} (CC-BY-SA), HumanEval~\citep{chen2021humaneval} (MIT).
 
 \item {\bf New assets}
-    \item[] Question: Are new assets introduced in the paper well documented and is the documentation provided alongside the assets?
     \item[] Answer: \answerYes{}
-    \item[] Justification: The released analysis code includes documentation, usage instructions, and example commands. No new datasets or trained models are released.
+    \item[] Justification: Released analysis code includes documentation and usage instructions.
 
 \item {\bf Crowdsourcing and research with human subjects}
-    \item[] Question: For crowdsourcing experiments and research with human subjects, does the paper include the full text of instructions given to participants and screenshots, if applicable, as well as details about compensation (if any)? 
     \item[] Answer: \answerNA{}
-    \item[] Justification: This work does not involve crowdsourcing or human subjects.
+    \item[] Justification: No human subjects involved.
 
 \item {\bf Institutional review board (IRB) approvals or equivalent for research with human subjects}
-    \item[] Question: Does the paper describe potential risks incurred by study participants, whether such risks were disclosed to the subjects, and whether Institutional Review Board (IRB) approvals (or an equivalent approval/review based on the requirements of your country or institution) were obtained?
     \item[] Answer: \answerNA{}
-    \item[] Justification: This work does not involve human subjects research.
+    \item[] Justification: No human subjects research.
 
 \item {\bf Declaration of LLM usage}
-    \item[] Question: Does the paper describe the usage of LLMs if it is an important, original, or non-standard component of the core methods in this research? Note that if the LLM is used only for writing, editing, or formatting purposes and does \emph{not} impact the core methodology, scientific rigor, or originality of the research, declaration is not required.
     \item[] Answer: \answerYes{}
-    \item[] Justification: LLMs (DeepSeek-R1-Distill-Qwen-7B and Qwen2.5-7B-Instruct) are the objects of study in this paper. Their reasoning traces are analyzed to validate our theoretical framework. The models are used for inference only; no training or fine-tuning is performed. Model names, versions, and quantization details are specified in Section~\ref{sec:experiments}.
+    \item[] Justification: LLMs (DeepSeek-R1-Distill-Qwen-7B and Qwen2.5-7B-Instruct) are the objects of study. Used for inference only; no training performed. Details in Section~\ref{sec:experiments}.
 
 \end{enumerate}

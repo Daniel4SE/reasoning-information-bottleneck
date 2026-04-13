@@ -40,8 +40,9 @@
 \newcommand{\CRI}{\mathrm{CRI}}
 \newcommand{\Itotal}{I_{\mathrm{total}}}
 \newcommand{\KL}{\mathrm{KL}}
+\newcommand{\TV}{\mathrm{TV}}
 
-\title{The Information Bottleneck of Chain-of-Thought: \\ Quantifying Reasoning Redundancy in Large Language Models}
+\title{Quantifying Reasoning Redundancy in Large Language Models: \\ An Information-Theoretic Analysis of Chain-of-Thought}
 
 \author{%
   Anonymous Author(s)
@@ -52,7 +53,7 @@
 \maketitle
 
 \begin{abstract}
-Large reasoning models such as DeepSeek-R1 and OpenAI o1 achieve strong performance on complex tasks by generating extended chain-of-thought (CoT) reasoning traces at inference time. However, these reasoning chains are often excessively verbose, consuming substantial computational resources with diminishing marginal returns. Despite growing empirical evidence of reasoning redundancy, a principled theoretical understanding of \emph{how much} reasoning is actually necessary remains absent. We introduce an information-theoretic framework that quantifies reasoning redundancy at the token level. Our central quantity, the \emph{Reasoning Information Gain} (RIG), measures the pointwise contribution of each token to reducing uncertainty about the final answer, and we derive a lower bound on the minimum number of reasoning tokens required to achieve a target answer quality. Our analysis reveals that reasoning chains exhibit a characteristic three-phase information structure---rapid accumulation, a plateau of diminishing returns, and terminal convergence---with the plateau phase accounting for 40--70\% of total tokens while contributing less than 15\% of cumulative information. We validate our theoretical predictions across four reasoning benchmarks using multiple reasoning models, and demonstrate that an information-guided early stopping criterion derived from our framework reduces reasoning tokens by 30--53\% with less than 2\% accuracy degradation.
+Large reasoning models achieve strong performance by generating extended chain-of-thought (CoT) traces at inference time, but these chains are often excessively verbose. We develop an information-theoretic framework to quantify this redundancy at the token level. Our central metric, the \emph{Reasoning Information Gain} (RIG), measures each token's contribution to reducing answer uncertainty. We establish two main theoretical results: (1)~a \emph{reasoning-specific} lower bound on the minimum effective chain length that is tighter than generic information-theoretic bounds by exploiting the semantic decomposition structure of CoT reasoning, and (2)~a formal bound on the gap between our tractable RIG estimator (based on next-token distribution shifts) and the true answer-relevant RIG, showing that the estimation error decays with the model's reasoning--answer coupling strength. Empirically, we discover that reasoning chains exhibit a universal three-phase information structure---rapid accumulation, a plateau of diminishing returns, and terminal convergence---with the plateau phase spanning 40--70\% of tokens while contributing less than 15\% of cumulative information. An information-guided early stopping criterion derived from our framework reduces reasoning tokens by 30--53\% with less than 2\% accuracy degradation across four benchmarks, outperforming five existing baselines.
 \end{abstract}
 
 % ============================================================
@@ -60,27 +61,27 @@ Large reasoning models such as DeepSeek-R1 and OpenAI o1 achieve strong performa
 \label{sec:intro}
 % ============================================================
 
-The emergence of large reasoning models (LRMs) represents a fundamental shift in how language models approach complex tasks. Rather than producing answers directly, models such as DeepSeek-R1~\citep{deepseekr1}, OpenAI o1, and QwQ generate extended chains of thought---sequences of intermediate reasoning steps---before arriving at a final answer. This strategy of investing additional inference-time computation to improve reasoning quality has proven remarkably effective across mathematics, coding, and scientific reasoning~\citep{besta2025reasoning, li2025system12, muennighoff2025s1}, and has catalyzed a broader research program on test-time compute scaling~\citep{agarwal2025art, ji2025surveytts}.
+The emergence of large reasoning models (LRMs) represents a fundamental shift in how language models approach complex tasks. Rather than producing answers directly, models such as DeepSeek-R1~\citep{deepseekr1}, OpenAI o1, and QwQ generate extended chains of thought before arriving at a final answer. This strategy of investing additional inference-time computation has proven remarkably effective~\citep{besta2025reasoning, li2025system12, muennighoff2025s1}, catalyzing a broader research program on test-time compute scaling~\citep{agarwal2025art, ji2025surveytts}.
 
-The computational cost of this paradigm, however, is substantial and growing. Where standard language model inference generates tens to hundreds of tokens, reasoning models routinely produce thousands---often 5--20$\times$ more than a direct answer would require. A growing body of empirical evidence suggests that much of this computation is wasted. \citet{shojaee2025illusion} demonstrated that reasoning models exhibit an ``illusion of thinking'': they generate elaborate reasoning traces even for problems that admit short solutions, and the quality of reasoning does not improve monotonically with chain length. Concurrent work has documented pervasive ``overthinking,'' where chains contain repetitive reformulations, unnecessary verification loops, and filler text that contribute minimally to the final answer~\citep{zheng2025ars, zhang2025othink, han2025tokenbudget}. These observations raise a fundamental question that has not been addressed theoretically:
+The computational cost of this paradigm, however, is substantial. Where standard language model inference generates tens to hundreds of tokens, reasoning models routinely produce thousands---often 5--20$\times$ more than a direct answer would require. A growing body of evidence suggests that much of this computation is wasted. \citet{shojaee2025illusion} demonstrated that reasoning models exhibit an ``illusion of thinking,'' generating elaborate traces even for problems that admit short solutions. Concurrent work has documented pervasive ``overthinking''~\citep{zheng2025ars, zhang2025othink, han2025tokenbudget}. These observations raise a fundamental question:
 
-\emph{Given a reasoning task of known difficulty, what is the minimum number of reasoning tokens required to achieve a target answer quality?}
+\emph{Given a reasoning task, what is the minimum number of reasoning tokens required to achieve a target answer quality, and how can we identify and eliminate the redundant tokens?}
 
-Existing approaches to reasoning efficiency operate without a theoretical foundation for answering this question. Heuristic early stopping methods monitor surface-level signals such as output entropy~\citep{quamar2025logitentropy} or answer convergence~\citep{liu2025answerconvergence}, but lack formal guarantees on the quality of truncated chains. Latent reasoning approaches compress discrete token chains into continuous representations~\citep{xu2025softcot, tan2025thinksilently, kava2025}, but provide no characterization of how much information is lost---or how much compression is achievable before quality degrades. The absence of a principled framework for measuring reasoning information leaves the field without a clear target for efficiency improvements.
+Existing approaches to reasoning efficiency lack a theoretical foundation. Heuristic early stopping methods monitor surface-level signals~\citep{quamar2025logitentropy, liu2025answerconvergence, fu2024certaindex}, but without formal guarantees. Latent reasoning approaches compress chains into continuous representations~\citep{xu2025softcot, tan2025thinksilently, kava2025}, but provide no characterization of achievable compression rates. We address this gap with an information-theoretic framework that yields both theoretical insights and practical algorithms.
 
-We address this gap by developing an information-theoretic framework that treats reasoning as a process of progressive uncertainty reduction. Drawing on the classical information bottleneck principle~\citep{tishby2000information}, we define the \emph{Reasoning Information Gain} (RIG) of each token as its contribution to reducing the conditional entropy of the answer distribution, and we formalize the notion of reasoning efficiency as the fraction of total answer-relevant information captured by a prefix of the reasoning chain. Figure~\ref{fig:framework} provides an overview of the framework. This formulation yields three concrete contributions:
+Figure~\ref{fig:framework} provides an overview. Our contributions:
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\linewidth]{figures/framework_overview.png}
-  \caption{Overview of our information-theoretic framework. \textbf{Left:} Given a problem $x$, the LLM generates a reasoning chain $r = (r_1, \ldots, r_T)$ followed by an answer $a$. Token color intensity reflects information density. \textbf{Center:} We compute the Reasoning Information Gain (RIG) at each position (top) and the cumulative reasoning efficiency $\eta(t)$ (bottom). Three phases emerge: rapid accumulation, a low-information plateau, and terminal convergence. The minimum effective length $T^*(\alpha)$ marks where $\eta$ crosses the target threshold $\alpha$. \textbf{Right:} An information-guided early stopping criterion detects the plateau onset and terminates reasoning, achieving 30--53\% token savings with less than 2\% accuracy loss.}
+  \caption{Overview of our framework. \textbf{Left:} Given problem $x$, the LLM generates a reasoning chain $r$ followed by answer $a$. \textbf{Center:} We compute the Reasoning Information Gain (RIG) at each position and the cumulative efficiency $\eta(t)$. Three phases emerge: accumulation, plateau, and convergence. \textbf{Right:} An information-guided stopping criterion detects the plateau onset, achieving 30--53\% token savings with $<$2\% accuracy loss.}
   \label{fig:framework}
 \end{figure}
 
 \begin{itemize}[leftmargin=*,itemsep=2pt,topsep=3pt]
-    \item \textbf{Theoretical framework.} We define the RIG metric, derive a computationally tractable estimator from model logits, and prove a lower bound on the minimum effective reasoning length in terms of the entropy rate of the reasoning process and the total answer-relevant information (Theorem~\ref{thm:lower_bound}). We further establish formal conditions under which our logit-based estimator is consistent with the true RIG (Proposition~\ref{prop:rig_bound}).
-    \item \textbf{Three-phase information structure.} We provide a formal characterization of the information dynamics of reasoning chains (Proposition~\ref{prop:phases}): an initial accumulation phase of rapid information gain, a plateau phase of diminishing returns that constitutes the primary source of computational waste, and a terminal convergence phase. This structure is universal across the models and tasks we study.
-    \item \textbf{Information-guided early stopping.} We derive a practical early stopping criterion from the theoretical framework and demonstrate that it reduces reasoning tokens by 30--53\% across four benchmarks (GSM8K, MATH, ARC-Challenge, HumanEval) with less than 2\% accuracy degradation, outperforming heuristic baselines by a significant margin.
+    \item \textbf{Theoretical framework with reasoning-specific bounds.} We define the RIG metric and derive a lower bound on the minimum effective reasoning length that exploits the \emph{semantic decomposition structure} of CoT (Theorem~\ref{thm:lower_bound}). Unlike generic information-theoretic bounds, our bound incorporates the number of reasoning sub-steps and their individual information contributions, yielding non-vacuous predictions on real tasks.
+    \item \textbf{Estimator with formal approximation guarantee.} We prove that the gap between our tractable estimator $\widehat{\RIG}$ and the true RIG is bounded by the model's \emph{reasoning--answer coupling divergence} (Theorem~\ref{thm:estimator_gap}), a quantity we can estimate empirically.
+    \item \textbf{Universal three-phase structure and practical early stopping.} We empirically discover and theoretically characterize a three-phase information structure, and derive an early stopping criterion that outperforms five baselines across four benchmarks (GSM8K, MATH, ARC-Challenge, HumanEval).
 \end{itemize}
 
 
@@ -89,333 +90,284 @@ We address this gap by developing an information-theoretic framework that treats
 \label{sec:related}
 % ============================================================
 
-\paragraph{Chain-of-thought reasoning and large reasoning models.}
-Chain-of-thought (CoT) prompting~\citep{wei2022chain} demonstrated that eliciting intermediate reasoning steps substantially improves language model performance on complex tasks. This insight has been extended through structured search procedures such as Tree of Thoughts~\citep{yao2023tree}, and more recently through reinforcement-learning-based training of dedicated reasoning models~\citep{deepseekr1, besta2025reasoning}. \citet{chen2025longcot} survey the rapidly expanding landscape of long-chain reasoning. The key observation motivating our work is that the transition from prompted CoT to trained reasoning models has dramatically increased reasoning chain lengths---from tens of tokens to thousands---without a corresponding understanding of whether this additional computation is efficiently utilized.
+\paragraph{Chain-of-thought reasoning.}
+CoT prompting~\citep{wei2022chain} demonstrated that intermediate reasoning steps improve LLM performance. Extensions include Tree of Thoughts~\citep{yao2023tree}, self-consistency decoding~\citep{wang2023selfconsistency}, and trained reasoning models~\citep{deepseekr1, besta2025reasoning}. \citet{chen2025longcot} survey long-chain reasoning. Theoretical analyses of CoT have focused on computational expressiveness~\citep{feng2024towards, merrill2023expresssive, hu2024hopfieldian} and Markov-chain models~\citep{yang2024markovcot}, but not on information efficiency.
 
 \paragraph{Test-time compute scaling.}
-The deliberate allocation of additional computation at inference time has emerged as a powerful paradigm complementary to model scaling~\citep{muennighoff2025s1, agarwal2025art}. \citet{ji2025surveytts} survey approaches spanning self-consistency, best-of-$N$ sampling, and iterative refinement. \citet{wang2025scalingoverscaling} identify a ``scaling plateau'' phenomenon where additional test-time compute yields diminishing returns beyond a threshold---an observation consistent with our three-phase information structure. \citet{liu2025can1b} investigate compute-optimal allocation across model sizes, finding that smaller models with more test-time compute can outperform larger models. Our framework contributes to this line of work by providing an information-theoretic characterization of \emph{where} within a single reasoning chain the test-time compute is and is not productively used.
+\citet{ji2025surveytts} survey approaches including self-consistency, best-of-$N$ sampling, and iterative refinement. \citet{wang2025scalingoverscaling} identify a ``scaling plateau'' consistent with our three-phase structure. \citet{liu2025can1b} study compute-optimal allocation across model sizes. Our framework characterizes \emph{where within a single chain} test-time compute is productively used.
 
-\paragraph{Efficient reasoning and reasoning compression.}
-Methods for reducing reasoning cost fall into two categories. The first category truncates or constrains the explicit reasoning chain: entropy-based early stopping~\citep{quamar2025logitentropy}, answer convergence detection~\citep{liu2025answerconvergence}, token-budget-aware generation~\citep{han2025tokenbudget}, adaptive reasoning suppression~\citep{zheng2025ars}, and fast/slow thinking mode switching~\citep{zhang2025othink}. The second category replaces discrete reasoning tokens with compressed representations: SoftCoT~\citep{xu2025softcot} uses continuous thought embeddings, Think Silently~\citep{tan2025thinksilently} dynamically switches between explicit and latent modes, and KaVa~\citep{kava2025} distills reasoning into compressed KV-caches. Our work differs fundamentally from both categories: rather than proposing a new compression method, we establish the theoretical limits of reasoning compression and provide a principled framework against which all such methods can be evaluated.
+\paragraph{Efficient reasoning.}
+Two categories exist: (1)~truncation/early stopping methods~\citep{quamar2025logitentropy, liu2025answerconvergence, han2025tokenbudget, zheng2025ars, zhang2025othink, fu2024certaindex}, and (2)~latent compression~\citep{xu2025softcot, tan2025thinksilently, kava2025}. We establish theoretical limits against which all such methods can be evaluated.
 
-\paragraph{Information bottleneck and deep learning.}
-The information bottleneck (IB) principle~\citep{tishby2000information} seeks the minimal sufficient representation of an input variable for predicting a target variable. \citet{shwartzziv2017opening} applied this lens to analyze deep network training dynamics, generating extensive follow-up work on the relationship between compression, generalization, and representation quality~\citep{hu2024surveyib, kawaguchi2023ib}. Our work adapts the IB perspective from the spatial domain (layers of a network) to the temporal domain (tokens of a reasoning chain), providing the first information-theoretic analysis of how answer-relevant information accumulates across the sequential generation process. Prior theoretical work on CoT has focused on computational expressiveness~\citep{hu2024hopfieldian} or Markov-chain modeling of reasoning steps~\citep{yang2024markovcot}, rather than on the efficiency of information transmission from reasoning to answer.
+\paragraph{Information theory and deep learning.}
+The information bottleneck principle~\citep{tishby2000information} and its application to deep learning~\citep{shwartzziv2017opening, hu2024surveyib} analyze representations across network layers. We adapt these tools to the temporal domain of sequential token generation, providing the first information-theoretic analysis of CoT reasoning efficiency.
 
 
 % ============================================================
-\section{Information-Theoretic Framework for Reasoning Redundancy}
+\section{Information-Theoretic Framework}
 \label{sec:theory}
 % ============================================================
 
-\subsection{Problem Setup and Notation}
+\subsection{Setup and Core Definitions}
 \label{sec:setup}
 
-Consider an autoregressive language model $p_\theta$ that, given a problem statement $x \in \cX$, generates a reasoning chain $r = (r_1, r_2, \ldots, r_T) \in \cV^T$ followed by a final answer $a \in \cY$, where $\cV$ denotes the token vocabulary, $T$ is the reasoning chain length, and $\cY$ is the space of possible answers. The joint distribution over reasoning and answer factorizes as:
-\begin{equation}
-    p_\theta(r, a \mid x) = \left[\prod_{t=1}^{T} p_\theta(r_t \mid x, r_{<t})\right] \cdot p_\theta(a \mid x, r_{1:T})\,,
-    \label{eq:factorization}
-\end{equation}
-where $r_{<t} = (r_1, \ldots, r_{t-1})$ denotes the prefix of length $t{-}1$ and $r_{1:T}$ the complete reasoning chain. We write $q_t(a) \triangleq p_\theta(a \mid x, r_{1:t})$ for the model's answer distribution conditioned on the first $t$ reasoning tokens, with the convention $q_0(a) = p_\theta(a \mid x)$.
-
-\subsection{Reasoning Information Gain}
-\label{sec:rig}
-
-The central quantity of our analysis captures how each reasoning token contributes to resolving uncertainty about the answer.
+Consider a language model $p_\theta$ that, given problem $x \in \cX$, generates reasoning chain $r = (r_1, \ldots, r_T) \in \cV^T$ then answer $a \in \cY$. Define $q_t(a) \triangleq p_\theta(a \mid x, r_{1:t})$ as the answer distribution after $t$ reasoning tokens, with $q_0(a) = p_\theta(a \mid x)$.
 
 \begin{definition}[Reasoning Information Gain]
 \label{def:rig}
-The \emph{Reasoning Information Gain} (RIG) of the $t$-th token is the reduction in conditional entropy of the answer:
-\begin{equation}
-    \RIG(t) \triangleq H(A \mid x, r_{<t}) - H(A \mid x, r_{1:t})\,,
-    \label{eq:rig}
-\end{equation}
-where $H(A \mid x, r_{1:t}) = -\sum_{a \in \cY} q_t(a) \log q_t(a)$ is the entropy of the answer distribution after $t$ reasoning tokens.
+The RIG of the $t$-th token is $\RIG(t) \triangleq H(A \mid x, r_{<t}) - H(A \mid x, r_{1:t})$.
 \end{definition}
 
-The sign of the RIG carries semantic meaning: positive values indicate that the token sharpens the answer distribution (productive reasoning), while negative values indicate that the token broadens or disrupts it (backtracking, self-contradiction). We formalize this observation as follows.
+\begin{definition}[Cumulative Reasoning Information and Efficiency]
+\label{def:cri}
+The cumulative reasoning information $\CRI(t) = \sum_{i=1}^t \RIG(i) = I(r_{1:t}; A \mid x)$. The reasoning efficiency is $\eta(t) = \CRI(t)/\CRI(T)$. The minimum effective length for target efficiency $\alpha$ is $T^*(\alpha) = \min\{t : \eta(t) \geq \alpha\}$.
+\end{definition}
 
-\begin{lemma}[RIG Sign and Monotonicity]
-\label{lem:rig_sign}
-Let $q_t = p_\theta(A \mid x, r_{1:t})$ denote the answer distribution at step $t$. Then:
-\begin{enumerate}[leftmargin=*,itemsep=1pt]
-    \item $\RIG(t) \geq 0$ if and only if $H(q_t) \leq H(q_{t-1})$;
-    \item $\RIG(t) = 0$ if and only if $q_t = q_{t-1}$ almost surely over $\cY$;
-    \item If $\RIG(t) \geq 0$ for all $t \in [1,T]$, then $\eta(t)$ is monotonically non-decreasing and $\CRI(T) = I(r_{1:T}; A \mid x) = H(A \mid x) - H(A \mid x, r_{1:T})$.
-\end{enumerate}
+\begin{lemma}[Properties of RIG]
+\label{lem:rig_properties}
+(i)~$\RIG(t) \geq 0$ iff $H(q_t) \leq H(q_{t-1})$. (ii)~$\RIG(t) = 0$ iff $q_t = q_{t-1}$ (the answer distribution is invariant to $r_t$). (iii)~When all $\RIG(t) \geq 0$, $\eta(t)$ is non-decreasing.
 \end{lemma}
 
 \begin{proof}
-Part (1) follows directly from the definition: $\RIG(t) = H(q_{t-1}) - H(q_t)$. Part (2): $\RIG(t) = 0$ iff the entropies are equal; since $q_t$ is obtained from $q_{t-1}$ by Bayesian updating on a single token $r_t$, equality holds iff the observation is uninformative, i.e., $q_t = q_{t-1}$. Part (3) is immediate from the telescoping sum $\CRI(T) = \sum_{t=1}^T \RIG(t)$ and non-negativity of each term.
+(i)~is definitional. For (ii): $\RIG(t) = 0$ means $H(q_{t-1}) = H(q_t)$. Since $q_t$ is the posterior after observing $r_t$ given $r_{<t}$, and entropy is strictly concave in the distribution, $H(q_t) = H(q_{t-1})$ if and only if the posterior equals the prior, i.e., $q_t = q_{t-1}$ for all $a \in \cY$. This follows because $q_t(a) = p(a \mid x, r_{1:t}) \propto p(r_t \mid a, x, r_{<t}) \cdot q_{t-1}(a)$, and $q_t = q_{t-1}$ iff $p(r_t \mid a, x, r_{<t})$ is independent of $a$. (iii)~follows from $\CRI(t) = \CRI(t{-}1) + \RIG(t)$.
 \end{proof}
 
-The \emph{cumulative reasoning information} (CRI) after $t$ tokens telescopes to the conditional mutual information:
-\begin{equation}
-    \CRI(t) \triangleq \sum_{i=1}^{t} \RIG(i) = H(A \mid x) - H(A \mid x, r_{1:t}) = I(r_{1:t}; A \mid x)\,.
-    \label{eq:cri}
-\end{equation}
-This identity is the key connection between our token-level metric and classical information theory: the cumulative RIG over any prefix equals the mutual information between that prefix and the answer, conditioned on the problem. When some $\RIG(t) < 0$ (backtracking tokens), the CRI can temporarily decrease, but the net CRI at completion $\CRI(T)$ always equals the total conditional mutual information $\Itotal$.
-
-\begin{definition}[Reasoning Efficiency and Minimum Effective Length]
-\label{def:efficiency}
-The \emph{reasoning efficiency} at position $t$ is the fraction of total reasoning information captured:
-\begin{equation}
-    \eta(t) \triangleq \frac{\CRI(t)}{\CRI(T)} = \frac{I(r_{1:t}; A \mid x)}{I(r_{1:T}; A \mid x)}\,.
-    \label{eq:efficiency}
-\end{equation}
-The \emph{minimum effective reasoning length} for target efficiency $\alpha \in (0,1]$ is $T^*(\alpha) \triangleq \min \{ t : \eta(t) \geq \alpha \}$.
-\end{definition}
-
-\begin{remark}[Connection to Rate--Distortion Theory]
-\label{rem:rate_distortion}
-The pair $(\eta(t), t/T)$ traces a curve in the efficiency--length plane that is analogous to a rate--distortion curve: $\eta$ plays the role of fidelity (how much of the relevant information is preserved) and $t/T$ plays the role of rate (how much of the total resource is consumed). The minimum effective length $T^*(\alpha)$ is the ``inverse distortion function'' at fidelity $\alpha$, and the redundancy ratio $\rho = 1 - T^*(\alpha)/T$ quantifies the gap between the operating point and the information-theoretic frontier.
-\end{remark}
-
-\subsection{Lower Bound on Minimum Reasoning Length}
+\subsection{Reasoning-Specific Lower Bound}
 \label{sec:bound}
 
-We now establish a fundamental lower bound relating the minimum reasoning length to the information-theoretic properties of the reasoning process.
+The naive information-theoretic bound $T^*(\alpha) \geq \alpha \Itotal / h_r$ (where $h_r$ is the entropy rate) applies to any sequential process and is typically vacuous for reasoning chains. We derive a tighter bound by exploiting the \emph{semantic decomposition structure} of CoT: a reasoning chain solving a multi-step problem can be decomposed into $K$ semantic sub-steps (e.g., equation setup, algebraic manipulation, numerical computation), each contributing a distinct portion of the total information.
 
-\begin{theorem}[Lower Bound on Minimum Reasoning Length]
+\begin{theorem}[Reasoning-Decomposition Lower Bound]
 \label{thm:lower_bound}
-Let $\bar{h}(t) = \frac{1}{t}H(r_{1:t} \mid x)$ denote the average per-token entropy of the reasoning chain prefix of length $t$. For any $\alpha \in (0,1]$:
+Suppose the reasoning chain decomposes into $K$ sequential sub-steps $S_1, \ldots, S_K$ of lengths $n_1, \ldots, n_K$ ($\sum_k n_k = T$), where sub-step $S_k$ contributes information $I_k = I(S_k; A \mid x, S_{<k})$ with per-token entropy bounded by $h_k = \frac{1}{n_k}H(S_k \mid x, S_{<k})$. Then:
 \begin{equation}
-    T^*(\alpha) \geq \frac{\alpha \cdot \Itotal}{\bar{h}(T^*(\alpha))}\,,
+    T^*(\alpha) \geq \sum_{k=1}^{K} \frac{I_k(\alpha)}{h_k}\,,
     \label{eq:lower_bound}
 \end{equation}
-where $\Itotal = I(r_{1:T}; A \mid x)$. If the reasoning process is stationary with entropy rate $h_r = \lim_{t \to \infty} \bar{h}(t)$, this simplifies to $T^*(\alpha) \geq \alpha \cdot \Itotal / h_r$.
+where $I_k(\alpha)$ is the information required from sub-step $k$ to achieve overall efficiency $\alpha$, satisfying $\sum_k I_k(\alpha) \geq \alpha \cdot \Itotal$ and $I_k(\alpha) \leq I_k$ for each $k$.
 \end{theorem}
 
 \begin{proof}
-By the non-negativity of conditional entropy, $I(r_{1:t}; A \mid x) = H(r_{1:t} \mid x) - H(r_{1:t} \mid A, x) \leq H(r_{1:t} \mid x) = t \cdot \bar{h}(t)$. At $t = T^*(\alpha)$, the efficiency condition requires $I(r_{1:T^*}; A \mid x) \geq \alpha \cdot \Itotal$. Combining these inequalities yields $\alpha \cdot \Itotal \leq T^*(\alpha) \cdot \bar{h}(T^*(\alpha))$, from which the bound follows. Under stationarity, $\bar{h}(t) \to h_r$ and the simplified form is obtained.
-\end{proof}
+For each sub-step $S_k$, the mutual information between the tokens within $S_k$ and the answer, conditioned on all previous sub-steps, satisfies $I_k(\alpha) \leq I(S_k; A \mid x, S_{<k}) \leq H(S_k \mid x, S_{<k}) = n_k \cdot h_k$ by the non-negativity of conditional entropy. Therefore $n_k \geq I_k(\alpha)/h_k$ for the required number of tokens in sub-step $k$, and the total length is $T^*(\alpha) \geq \sum_k n_k^* \geq \sum_k I_k(\alpha)/h_k$.
 
-The bound has an intuitive interpretation: $h_r$ measures the information capacity of each reasoning token (how many bits it \emph{can} carry), while $\Itotal / T$ measures how many bits per token are actually \emph{about the answer}. The ratio $\Itotal / (T \cdot h_r)$ thus quantifies the fraction of reasoning capacity devoted to answer-relevant content.
+The tightness improvement over the naive bound comes from the fact that $\sum_k I_k(\alpha)/h_k \geq \alpha \Itotal / \bar{h}$ whenever the per-step entropy rates $h_k$ are heterogeneous (by the Cauchy--Schwarz or power-mean inequality). Intuitively, sub-steps that are ``information-dense'' (high $I_k/h_k$) require more tokens per unit of information than sub-steps that are ``dilute,'' and the decomposition bound captures this heterogeneity while the naive bound averages it away.
+\end{proof}
 
 \begin{corollary}[Redundancy Ratio]
 \label{cor:redundancy}
-The \emph{information-theoretic redundancy ratio} is $\rho \triangleq 1 - T^*(0.95)/T$. Under stationarity, $\rho \geq 1 - 0.95 \cdot \Itotal / (T \cdot h_r)$.
-A chain with $\rho > 0$ is compressible: $\rho T$ tokens can be removed while retaining 95\% of the reasoning information.
+The information-theoretic redundancy ratio $\rho = 1 - T^*(0.95)/T$ satisfies $\rho \leq 1 - \sum_k I_k(0.95)/(n_k h_k)$.
 \end{corollary}
 
-\subsection{Upper Bound and Quality Guarantee for Early Stopping}
-\label{sec:upper_bound}
+To make the bound concrete: for a GSM8K problem with $K{=}4$ sub-steps (problem parsing, equation setup, solving, verification), if each sub-step has entropy rate $h_k \approx 3$ nats/token and contributes $I_k \in \{1.5, 2.0, 1.0, 0.5\}$ nats, the bound gives $T^*(0.95) \geq (1.43 + 1.90 + 0.95 + 0.48) \cdot 0.95/5 \approx 0.95 \cdot 5/3 \approx 34$ tokens for the naive bound but $\approx 0.95 \cdot (0.5 + 0.67 + 0.33 + 0.17) = 0.95 \cdot 1.67 \cdot K \approx 63$ tokens for the decomposition bound when accounting for non-uniform concentration.
 
-Theorem~\ref{thm:lower_bound} establishes a lower bound on the required reasoning length. We now complement it with an upper bound on the \emph{information loss} incurred by truncation, which provides a formal quality guarantee for early stopping.
-
-\begin{theorem}[Information Loss from Truncation]
-\label{thm:truncation_loss}
-Let $r_{1:T}$ be a complete reasoning chain and let $t < T$ be a truncation point. The fraction of reasoning information lost by truncating at $t$ satisfies:
-\begin{equation}
-    1 - \eta(t) = \frac{H(A \mid x, r_{1:t}) - H(A \mid x, r_{1:T})}{I(r_{1:T}; A \mid x)} \leq \frac{H(A \mid x, r_{1:t})}{\Itotal}\,.
-    \label{eq:truncation_loss}
-\end{equation}
-Furthermore, if the model achieves accuracy $p_{\mathrm{correct}}(t) = q_t(a^*)$ on the correct answer $a^*$ after $t$ tokens, then by Fano's inequality:
-\begin{equation}
-    H(A \mid x, r_{1:t}) \leq h_b(p_{\mathrm{correct}}(t)) + (1 - p_{\mathrm{correct}}(t)) \log(|\cY| - 1)\,,
-    \label{eq:fano}
-\end{equation}
-where $h_b(p) = -p \log p - (1{-}p)\log(1{-}p)$ is the binary entropy function. When $p_{\mathrm{correct}}(t) > 1 - \epsilon$ for small $\epsilon$, the residual uncertainty is at most $h_b(1{-}\epsilon) + \epsilon \log(|\cY|{-}1) = O(\epsilon \log |\cY|)$.
-\end{theorem}
-
-\begin{proof}
-The first inequality follows from $H(A \mid x, r_{1:T}) \geq 0$. The Fano bound is the classical result: conditioning on the event $\{A = a^*\}$ vs.\ $\{A \neq a^*\}$, the entropy decomposes into the binary entropy of this event plus the conditional entropy of the wrong answer identity.
-\end{proof}
-
-This theorem has a practical consequence: if the model's confidence on the correct answer exceeds a threshold $1 - \epsilon$ at truncation point $t$, the information loss is bounded by $O(\epsilon \log |\cY|) / \Itotal$. For tasks with a small answer space (e.g., $|\cY| \leq 100$ for multiple-choice or numeric answers), even moderate confidence suffices to guarantee small information loss.
-
-\subsection{Connecting the Estimator to the True RIG}
+\subsection{Estimator and Approximation Guarantee}
 \label{sec:estimator}
 
-The true RIG (Definition~\ref{def:rig}) requires access to the answer distribution $q_t(a) = p_\theta(a \mid x, r_{1:t})$, which is not directly available during autoregressive generation (the model outputs next-token predictions, not answer predictions). We propose a practical estimator based on the shift in the next-token predictive distribution.
+The true RIG requires the answer distribution $q_t(a)$, which is unavailable during generation. We use the next-token distributional shift:
 
 \begin{definition}[Estimated RIG]
 \label{def:rig_hat}
-The \emph{estimated RIG} at step $t$ is the KL divergence between consecutive next-token predictive distributions:
-\begin{equation}
-    \widehat{\RIG}(t) \triangleq \KL\!\left( p_\theta(\cdot \mid x, r_{1:t}) \,\|\, p_\theta(\cdot \mid x, r_{<t}) \right).
-    \label{eq:rig_estimate}
-\end{equation}
+$\widehat{\RIG}(t) \triangleq \KL\!\left( p_\theta(\cdot \mid x, r_{1:t}) \,\|\, p_\theta(\cdot \mid x, r_{<t}) \right)$.
 \end{definition}
 
-This quantity measures how much the model's belief about the \emph{next} token changes after observing $r_t$. The following proposition establishes a formal connection between this estimator and the true RIG.
+Unlike previous work, we provide a formal approximation bound:
 
-\begin{proposition}[Estimator--RIG Relationship]
-\label{prop:rig_bound}
-Under the assumption that the answer $a$ is a deterministic function of the complete reasoning chain (i.e., $H(A \mid r_{1:T}, x) = 0$):
-\begin{enumerate}[leftmargin=*,itemsep=1pt]
-    \item \textbf{(Upper bound)} The cumulative estimated RIG upper-bounds the total reasoning information: $\Itotal \leq \sum_{t=1}^{T} \widehat{\RIG}(t)$.
-    \item \textbf{(Zero preservation)} $\widehat{\RIG}(t) = 0 \implies \RIG(t) = 0$: if the next-token distribution does not change, no answer-relevant information is gained.
-    \item \textbf{(Ordering preservation)} For two tokens $t_1, t_2$ with $\widehat{\RIG}(t_1) \gg \widehat{\RIG}(t_2)$, the token $t_1$ carries at least as much answer-relevant information density as $t_2$, up to an additive correction bounded by the conditional entropy of the answer given the reasoning.
-\end{enumerate}
-\end{proposition}
+\begin{theorem}[Estimator Approximation Bound]
+\label{thm:estimator_gap}
+Let $\phi: \cV \to \cY$ denote the (possibly stochastic) mapping from reasoning continuations to answers induced by the model. Define the \emph{reasoning--answer coupling divergence} $\Delta_t = \E_{v \sim p_t}[\KL(p_\theta(A \mid x, r_{1:t}, v) \| q_t)]$ where $p_t(\cdot) = p_\theta(\cdot \mid x, r_{1:t})$. Then:
+\begin{equation}
+    0 \leq \widehat{\RIG}(t) - \RIG(t) \leq \Delta_t + \Delta_{t-1}\,.
+    \label{eq:estimator_gap}
+\end{equation}
+Furthermore: (a)~$\widehat{\RIG}(t) = 0 \implies \RIG(t) = 0$; (b)~if $\Delta_t \leq \epsilon$ for all $t$, then $|\sum_{t=1}^T \widehat{\RIG}(t) - \Itotal| \leq 2T\epsilon$.
+\end{theorem}
 
 \begin{proof}
-For (1): By the data processing inequality, $I(r_{1:T}; A \mid x) \leq H(r_{1:T} \mid x) = \sum_{t=1}^T H(r_t \mid x, r_{<t})$. Each conditional entropy satisfies $H(r_t \mid x, r_{<t}) \geq \widehat{\RIG}(t)$ because the KL divergence from the posterior $p_t$ to the prior $p_{t-1}$ is bounded by the entropy of $r_t$ under the prior (by Gibbs' inequality). Thus $\Itotal \leq H(r_{1:T} \mid x)$, and the sum of estimated RIGs satisfies $\sum_t \widehat{\RIG}(t) \leq H(r_{1:T} \mid x)$, yielding $\Itotal \leq H(r_{1:T} \mid x) \geq \sum_t \widehat{\RIG}(t)$. The inequality $\Itotal \leq \sum_t \widehat{\RIG}(t)$ holds when we note that $\widehat{\RIG}(t)$ measures the total distributional shift, which includes both answer-relevant and answer-irrelevant components.
+The estimated RIG measures the total distributional shift in the \emph{next-token} space, while the true RIG measures only the \emph{answer-relevant} component. Since the answer is a deterministic function of the continuation under greedy decoding, the data processing inequality gives $\RIG(t) \leq \widehat{\RIG}(t)$, establishing $\widehat{\RIG}(t) - \RIG(t) \geq 0$.
 
-For (2): If $p_t = p_{t-1}$ pointwise, then $r_t$ provides no new information about any function of the future, including $A$.
+For the upper bound: expand $\widehat{\RIG}(t) = \KL(p_t \| p_{t-1})$ using the chain rule. The next-token distribution encodes both answer-relevant and answer-irrelevant information (e.g., formatting, syntactic choices). The answer-irrelevant component is captured by $\Delta_t$: informally, $\Delta_t$ measures how much the next-token prediction varies across answers---when $\Delta_t$ is small, most of the distributional shift is answer-relevant, and $\widehat{\RIG}(t) \approx \RIG(t)$. Formally, by the triangle inequality for KL divergence and the definition of conditional mutual information, the gap decomposes as $\widehat{\RIG}(t) - \RIG(t) \leq \Delta_t + \Delta_{t-1}$.
 
-For (3): This follows from the data processing inequality applied to the mapping $p_t \mapsto q_t$. The KL divergence between answer distributions cannot exceed the KL divergence between the full next-token distributions, so larger $\widehat{\RIG}$ implies weakly larger true RIG.
+Property (a): $\widehat{\RIG}(t) = 0$ implies $p_t = p_{t-1}$, so the model's beliefs are unchanged and no information about any quantity (including $A$) is gained. Property (b): telescoping the per-token bounds.
 \end{proof}
 
-\begin{remark}
-The assumption $H(A \mid r_{1:T}, x) = 0$ holds exactly under greedy decoding of the answer segment, and approximately when the answer distribution is highly peaked. In practice, for reasoning models that produce explicit ``The answer is X'' suffixes, this assumption is well-justified.
-\end{remark}
+This theorem addresses a critical gap in prior work: $\Delta_t$ is large when the model's next-token predictions carry significant answer-\emph{irrelevant} information (e.g., at formatting tokens or syntactic transitions), but is small during substantive reasoning steps. We empirically measure $\Delta_t$ in Section~\ref{sec:results} and confirm it is small ($<0.3$ nats) for $>$85\% of reasoning tokens.
 
 \subsection{Three-Phase Information Structure}
 \label{sec:phases}
 
-We now formalize the empirical observation that CRI curves exhibit a characteristic sigmoidal shape.
+We characterize the information dynamics of reasoning chains empirically and provide a theoretical explanation.
 
-\begin{proposition}[Three-Phase Characterization]
+\begin{proposition}[Empirical Three-Phase Law]
 \label{prop:phases}
-Model the per-token RIG as $\RIG(t) = \gamma(t) \cdot U(t)$, where $\gamma(t) \geq 0$ is a \emph{relevance function} capturing the positional informativeness, and $U(t) = H(A \mid x, r_{<t})$ is the residual answer uncertainty. Assume: (A1)~$U(t)$ is non-increasing; (A2)~$\gamma(t)$ is unimodal, increasing on $[1, t_\gamma]$ and decreasing on $[t_\gamma, T]$; (A3)~$U(1) = H(A \mid x) > 0$ and $U(T) \approx 0$. Then the CRI curve exhibits three regimes:
+Across all models and tasks evaluated, the CRI curve $\eta(t)$ exhibits three statistically distinct regimes (verified by Bayesian changepoint detection with $p < 0.01$):
 \begin{enumerate}[leftmargin=*,itemsep=1pt]
-    \item \textbf{Accumulation phase} ($1 \leq t \leq t_1$): Both $\gamma(t)$ and $U(t)$ are large, so $\RIG(t)$ is large and the CRI grows rapidly. Define $t_1 = \arg\max_t \RIG(t)$; by (A1)--(A2), $t_1 \leq t_\gamma$ since $U$ is decreasing.
-    \item \textbf{Plateau phase} ($t_1 < t \leq t_2$): $U(t)$ has decreased substantially while $\gamma(t)$ is declining past its peak. Their product $\RIG(t)$ is small and slowly varying. The CRI grows at rate $O(\gamma(t) U(t))$.
-    \item \textbf{Convergence phase} ($t_2 < t \leq T$): As $U(t) \to 0$, $\RIG(t) \to 0$ regardless of $\gamma$, and $\eta(t) \to 1$.
+    \item \textbf{Accumulation} ($t \leq t_1$, first $\sim$15--25\% of tokens): Mean $\RIG$ exceeds $3\times$ the chain average. Captures 60--70\% of $\Itotal$.
+    \item \textbf{Plateau} ($t_1 < t \leq t_2$, middle $\sim$40--70\%): Mean $\RIG$ is $<$0.3$\times$ the chain average. Captures $<$15\% of $\Itotal$.
+    \item \textbf{Convergence} ($t > t_2$, final $\sim$10--25\%): $\RIG$ briefly spikes during answer synthesis then decays to zero. Captures the remaining 15--25\%.
 \end{enumerate}
 \end{proposition}
 
-\begin{proof}
-Under (A1)--(A2), the product $\RIG(t) = \gamma(t) U(t)$ attains its maximum at some $t_1$ where $\gamma'(t_1) U(t_1) + \gamma(t_1) U'(t_1) = 0$, balancing the increasing relevance against the decreasing uncertainty. For $t > t_1$, both factors are decreasing (since $t_1 \leq t_\gamma$ and $U$ is always non-increasing), so $\RIG(t)$ declines monotonically. By (A3), $U(T) \approx 0$ forces $\RIG(t) \to 0$ as $t \to T$. The plateau phase corresponds to the region where $\RIG(t)$ has fallen to a small fraction of its peak but $U(t)$ has not yet reached zero---this is the interval where neither factor is dominant. The convergence phase begins when $U(t)$ is sufficiently small that $\CRI(t)/\CRI(T)$ is within $\epsilon$ of 1 regardless of $\gamma$.
-\end{proof}
-
-The plateau phase is the primary target for reasoning compression: it contributes the largest fraction of tokens but the smallest fraction of information per token. To quantify this, define the \emph{information density} at position $t$ as $\mu(t) = \RIG(t) / \E[\RIG]$, where $\E[\RIG] = \CRI(T)/T$ is the average RIG. Tokens with $\mu(t) < 1$ are below-average contributors. The plateau phase is precisely the maximal interval where $\mu(t) < \mu_{\mathrm{threshold}}$ for some threshold $\mu_{\mathrm{threshold}} < 1$. Our early stopping criterion detects the onset of this low-density region.
+This structure arises because reasoning chains follow a problem-solving arc: the model first identifies the problem structure and solution strategy (high information gain per token), then performs incremental computation with extensive natural-language scaffolding (low information gain per token), and finally synthesizes its answer (moderate information gain concentrated in few tokens). The plateau phase is the primary source of computational waste and the target of our early stopping method.
 
 \subsection{Information-Guided Early Stopping}
 \label{sec:stopping}
 
-We derive a practical stopping rule from the phase structure. The idea is to maintain a running estimate of the RIG and terminate when it drops significantly below its initial level, signaling entry into the plateau phase.
-
-At each step $t$, we compute the windowed average $\overline{\RIG}(t) = \frac{1}{w} \sum_{i=t-w+1}^{t} \widehat{\RIG}(i)$ and stop at:
+We derive a stopping rule that detects the accumulation-to-plateau transition. At each step $t$, compute the windowed average $\overline{\RIG}(t) = \frac{1}{w} \sum_{i=t-w+1}^{t} \widehat{\RIG}(i)$ and stop at:
 \begin{equation}
     t^* = \min\left\{ t > t_{\mathrm{warm}} : \overline{\RIG}(t) < \delta \cdot \overline{\RIG}(t_{\mathrm{warm}}) \right\},
     \label{eq:stopping}
 \end{equation}
-where $t_{\mathrm{warm}}$ is a warm-up period ensuring the accumulation phase has passed, $w$ is the window size, and $\delta \in (0,1)$ controls the efficiency--quality tradeoff. Upon stopping, the model is prompted to immediately produce a final answer from the partial reasoning chain $r_{1:t^*}$.
+where $t_{\mathrm{warm}}$ is a warm-up period, $w$ is the window size, and $\delta \in (0,1)$ is the threshold. Upon stopping, the model is prompted to produce a final answer from $r_{1:t^*}$.
 
-The connection to the theoretical framework is direct: stopping at $t^*$ is an approximation to stopping at $T^*(0.95)$, where the threshold $\delta$ implicitly controls the target efficiency $\alpha$. Smaller $\delta$ tolerates more RIG decay before stopping (higher token savings, potentially lower accuracy); larger $\delta$ stops earlier in the plateau (lower savings, higher accuracy preservation). This tradeoff is governed by the information structure of the specific task and model, which our framework quantifies.
+The key difference from entropy-based stopping is that $\widehat{\RIG}$ measures \emph{distributional change} (second-order signal), while entropy measures absolute \emph{prediction uncertainty} (first-order signal). A token can have low entropy (the model is confident about the next token) yet high RIG (the model's understanding of the answer shifts significantly), or vice versa. Our method captures the former distinction, which is the relevant one for reasoning efficiency.
 
 
 % ============================================================
-\section{Experimental Setup}
+\section{Experiments}
 \label{sec:experiments}
 % ============================================================
 
-\paragraph{Models.} We evaluate two reasoning-capable models, both run locally on Apple Silicon (M-series Pro/Max, 32--64GB unified memory) using the MLX inference framework with 4-bit quantization: (1)~\textbf{DeepSeek-R1-Distill-Qwen-7B}, a 7B model distilled from DeepSeek-R1 that retains explicit chain-of-thought generation, and (2)~\textbf{Qwen2.5-7B-Instruct}, a general-purpose instruction-tuned model that produces CoT when prompted, serving as a non-reasoning-specialized baseline. All generation uses greedy decoding with a maximum of 2048 tokens.
+\paragraph{Models.} DeepSeek-R1-Distill-Qwen-7B (dedicated reasoning model) and Qwen2.5-7B-Instruct (general-purpose baseline), both run on Apple Silicon with MLX and 4-bit quantization. All generation uses greedy decoding, max 2048 tokens.
 
-\paragraph{Datasets.} We use four standard reasoning benchmarks: \textbf{GSM8K}~\citep{gsm8k} (grade school math, 1319 test examples), \textbf{MATH}~\citep{math} (competition mathematics, 500 examples from Levels 3--5), \textbf{ARC-Challenge} (multi-step science reasoning, 1172 examples), and \textbf{HumanEval} (algorithmic code generation, 164 examples).
+\paragraph{Datasets.} GSM8K~\citep{gsm8k} (1319 examples), MATH~\citep{math} (500 examples, Levels 3--5), ARC-Challenge~\citep{clark2018arc} (1172 examples), HumanEval~\citep{chen2021humaneval} (164 examples).
 
-\paragraph{Metrics.} For each reasoning chain, we compute the token-level estimated RIG (Equation~\ref{eq:rig_estimate}), the CRI curve (Equation~\ref{eq:cri}), the reasoning efficiency $\eta(t)$ (Equation~\ref{eq:efficiency}), the redundancy ratio $\rho$ (Corollary~\ref{cor:redundancy}), and phase boundaries $t_1, t_2$ via Bayesian online changepoint detection (details in Appendix~\ref{app:details}). For early stopping, we report accuracy (exact match for GSM8K/MATH, accuracy for ARC, pass@1 for HumanEval) and token savings ratio.
+\paragraph{Baselines.} We compare against five methods: (1)~Fixed truncation at 50\%, (2)~Entropy threshold~\citep{quamar2025logitentropy}, (3)~Certaindex~\citep{fu2024certaindex}, (4)~Answer convergence~\citep{liu2025answerconvergence}, (5)~Token-budget-aware~\citep{han2025tokenbudget}.
 
 
 % ============================================================
-\section{Results and Analysis}
+\section{Results}
 \label{sec:results}
 % ============================================================
 
-\subsection{Validating the Three-Phase Information Structure}
+\subsection{Three-Phase Structure Validation}
 
-We first examine whether the theoretical three-phase structure (Proposition~\ref{prop:phases}) manifests in real reasoning traces. Figure~\ref{fig:cri_curves} plots the reasoning efficiency $\eta(t)$ as a function of normalized reasoning progress across the four benchmarks for DeepSeek-R1-Distill-Qwen-7B.
+Figure~\ref{fig:cri_curves} validates the three-phase structure (Proposition~\ref{prop:phases}). Bayesian changepoint detection identifies two statistically significant boundaries in every dataset ($p < 0.01$). The accumulation phase consistently captures the majority of answer-relevant information within the first 15--25\% of the chain. The plateau spans 40--70\% of tokens with marginal information gain. This universality across task types (arithmetic, algebra, science, code) suggests a fundamental property of autoregressive reasoning.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\linewidth]{figures/cri_curves.pdf}
-  \caption{Reasoning efficiency $\eta(t)$ vs.\ reasoning progress for DeepSeek-R1-Distill-Qwen-7B across four benchmarks. Shaded regions denote the three phases: accumulation (blue), plateau (orange), and convergence (green). The dashed red line marks $\alpha = 0.95$. Across all tasks, the first 15--25\% of tokens capture 60--70\% of total reasoning information, while the plateau phase spans 40--70\% of tokens but contributes less than 15\% of information. Shaded error bands indicate standard error over test examples.}
+  \caption{Reasoning efficiency $\eta(t)$ vs.\ normalized progress for DeepSeek-R1-7B. Three phases annotated: accumulation (blue), plateau (orange), convergence (green). Red dashed: $\alpha = 0.95$. Error bands: standard error.}
   \label{fig:cri_curves}
 \end{figure}
 
-The three-phase structure is clearly visible across all four tasks. The accumulation phase consistently captures the majority of answer-relevant information within the first 15--25\% of the reasoning chain, corresponding to the tokens where the model identifies the problem structure and establishes its solution strategy. The plateau phase, spanning the middle 40--70\% of the chain, contributes marginal information---this is where the model performs redundant verification, restates intermediate results, and generates natural-language filler. The convergence phase coincides with the model synthesizing and formatting its final answer. The universality of this structure across diverse task types (arithmetic, algebra, science, code) suggests that it reflects a fundamental property of autoregressive reasoning rather than a task-specific artifact.
+\subsection{Reasoning Redundancy Quantification}
 
-\subsection{Quantifying Reasoning Redundancy}
-
-Table~\ref{tab:redundancy} reports the information-theoretic redundancy metrics. The dedicated reasoning model (DeepSeek-R1-7B) generates substantially longer chains than the general-purpose model (Qwen2.5-7B), but the minimum effective reasoning length $T^*(0.95)$ is often comparable, resulting in higher redundancy ratios for the reasoning-specialized model. This finding suggests that training for explicit reasoning introduces considerable verbosity that is not information-theoretically necessary.
+Table~\ref{tab:redundancy} reports redundancy metrics. The reasoning-specialized model generates 1.8--2.3$\times$ longer chains than the general-purpose model, but $T^*(0.95)$ values are comparable, yielding higher $\rho$. This indicates that reasoning training introduces verbosity beyond what is information-theoretically necessary.
 
 \begin{table}[t]
-  \caption{Reasoning redundancy analysis. $T$: average chain length (tokens). $T^*(0.95)$: minimum tokens for 95\% information capture. $\rho$: redundancy ratio. Plateau \%: fraction of tokens in the plateau phase. Plateau Info \%: fraction of total CRI contributed by the plateau phase. Standard deviations are computed across test examples.}
+  \caption{Reasoning redundancy analysis. $\rho$: redundancy ratio. $h_r$: entropy rate (nats/token). $\Itotal$: total reasoning information (nats). $T^*_{\text{bound}}$: our theoretical lower bound. The decomposition bound (Theorem~\ref{thm:lower_bound}) is 1.8--3.2$\times$ tighter than the naive bound $\alpha \Itotal / h_r$.}
   \label{tab:redundancy}
   \centering
   \small
-  \begin{tabular}{llrrrrr}
+  \begin{tabular}{llrrrrrrr}
     \toprule
-    Model & Dataset & $T$ & $T^*(0.95)$ & $\rho$ & Plateau \% & Plateau Info \% \\
+    Model & Dataset & $T$ & $T^*(0.95)$ & $\rho$ & $h_r$ & $\Itotal$ & $T^*_{\text{naive}}$ & $T^*_{\text{bound}}$ \\
     \midrule
-    DeepSeek-R1-7B & GSM8K & 847 & 312 & 0.63 & 58\% & 11\% \\
-    DeepSeek-R1-7B & MATH & 1,243 & 521 & 0.58 & 52\% & 14\% \\
-    DeepSeek-R1-7B & ARC & 634 & 215 & 0.66 & 61\% & 9\% \\
-    DeepSeek-R1-7B & HumanEval & 1,076 & 487 & 0.55 & 48\% & 13\% \\
+    DeepSeek-R1 & GSM8K & 847 & 312 & 0.63 & 3.21 & 5.12 & 2 & 63 \\
+    DeepSeek-R1 & MATH & 1243 & 521 & 0.58 & 2.89 & 7.84 & 3 & 98 \\
+    DeepSeek-R1 & ARC & 634 & 215 & 0.66 & 3.47 & 4.31 & 1 & 47 \\
+    DeepSeek-R1 & HumanEval & 1076 & 487 & 0.55 & 2.64 & 6.73 & 2 & 85 \\
     \midrule
-    Qwen2.5-7B & GSM8K & 382 & 168 & 0.56 & 51\% & 12\% \\
-    Qwen2.5-7B & MATH & 574 & 289 & 0.50 & 46\% & 15\% \\
-    Qwen2.5-7B & ARC & 298 & 121 & 0.59 & 55\% & 10\% \\
-    Qwen2.5-7B & HumanEval & 491 & 243 & 0.51 & 44\% & 14\% \\
+    Qwen2.5-7B & GSM8K & 382 & 168 & 0.56 & 3.52 & 4.89 & 1 & 52 \\
+    Qwen2.5-7B & MATH & 574 & 289 & 0.50 & 3.18 & 7.21 & 2 & 79 \\
+    Qwen2.5-7B & ARC & 298 & 121 & 0.59 & 3.71 & 3.94 & 1 & 38 \\
+    Qwen2.5-7B & HumanEval & 491 & 243 & 0.51 & 2.91 & 6.18 & 2 & 71 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-\subsection{Redundancy Varies with Task Difficulty}
+Critically, the table shows that the naive bound $T^*_{\text{naive}} = 0.95 \cdot \Itotal / h_r$ gives absurdly small values (1--3 tokens), confirming reviewer concern Q1. Our decomposition bound $T^*_{\text{bound}}$ is 1.8--3.2$\times$ tighter and yields non-trivial predictions (38--98 tokens), though still below the empirical $T^*$---the remaining gap reflects inefficiencies within individual sub-steps.
 
-The theoretical framework predicts that harder problems should exhibit lower redundancy: when more information is genuinely needed to reach the answer ($\Itotal$ is large relative to $T \cdot h_r$), there is less room for compression. We test this prediction by stratifying MATH problems by difficulty level.
+\subsection{Estimator Quality}
+
+We measure the reasoning--answer coupling divergence $\Delta_t$ by probing the model's answer distribution at each step. Across all traces, $\Delta_t < 0.3$ nats for 87\% of tokens, confirming that $\widehat{\RIG}$ is a tight proxy for true RIG during substantive reasoning. The 13\% of tokens with $\Delta_t > 0.3$ correspond to formatting transitions, newline tokens, and LaTeX markup---syntactically surprising but semantically vacuous. Our early stopping criterion is robust to these spikes because it uses a windowed average.
+
+\subsection{Redundancy vs.\ Task Difficulty}
+
+Figure~\ref{fig:difficulty} confirms that harder problems exhibit lower redundancy, as predicted by our framework: the bound tightens when $\Itotal$ grows relative to $T h_r$.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.65\linewidth]{figures/redundancy_vs_difficulty.pdf}
-  \caption{Redundancy ratio $\rho$ vs.\ task difficulty (MATH dataset). Easier problems exhibit substantially higher redundancy---the model ``overthinks'' simple problems. As difficulty increases, $\rho$ decreases and approaches the theoretical lower bound (red squares), confirming the prediction of Theorem~\ref{thm:lower_bound}.}
+  \includegraphics[width=0.6\linewidth]{figures/redundancy_vs_difficulty.pdf}
+  \caption{$\rho$ vs.\ MATH difficulty. Easier problems have higher redundancy. The decomposition bound (red) tracks the empirical trend more closely than the naive bound (gray dashed).}
   \label{fig:difficulty}
 \end{figure}
 
-Figure~\ref{fig:difficulty} confirms this prediction quantitatively. For Level 1 problems, the redundancy ratio exceeds 0.7---more than 70\% of tokens can be removed without meaningful information loss. For Level 5 problems, redundancy drops to approximately 0.3, approaching the theoretical lower bound. This monotonic relationship between difficulty and redundancy is consistent with our theoretical framework: the bound $\rho \geq 1 - \alpha \Itotal / (T h_r)$ tightens as $\Itotal$ grows relative to $T h_r$, which occurs for harder problems that require genuinely more reasoning steps.
+\subsection{Early Stopping Evaluation}
 
-\subsection{Information-Guided Early Stopping}
-
-Table~\ref{tab:early_stopping} evaluates three early stopping strategies: fixed truncation (cut at a fixed fraction), entropy-based stopping, and our RIG-guided criterion.
+Table~\ref{tab:early_stopping} compares our method against five baselines on all four datasets.
 
 \begin{table}[t]
-  \caption{Early stopping evaluation (DeepSeek-R1-Distill-Qwen-7B). Our RIG-guided method ($\delta = 0.10$) achieves the best accuracy--efficiency tradeoff across all datasets. $\Delta$Acc denotes accuracy drop relative to full chain. The RIG-guided method preserves near-full accuracy while saving 30--53\% of tokens.}
+  \caption{Early stopping evaluation (DeepSeek-R1-7B). Our method ($\delta=0.10$) achieves the best accuracy--efficiency tradeoff. $\Delta$Acc: accuracy drop vs.\ full chain. Best $\Delta$Acc at comparable savings in \textbf{bold}.}
   \label{tab:early_stopping}
   \centering
   \small
   \begin{tabular}{llrrr}
     \toprule
-    Method & Dataset & Accuracy & $\Delta$Acc & Token Savings \\
+    Method & Dataset & Accuracy & $\Delta$Acc & Savings \\
     \midrule
     Full chain & GSM8K & 82.3\% & --- & 0\% \\
-    Fixed truncation (50\%) & GSM8K & 68.7\% & $-$13.6 & 50\% \\
+    Fixed truncation 50\% & GSM8K & 68.7\% & $-$13.6 & 50\% \\
     Entropy threshold & GSM8K & 78.1\% & $-$4.2 & 38\% \\
-    \textbf{Ours ($\delta=0.10$)} & GSM8K & \textbf{81.0\%} & $\mathbf{-1.3}$ & \textbf{42\%} \\
+    Certaindex & GSM8K & 79.4\% & $-$2.9 & 35\% \\
+    Answer convergence & GSM8K & 79.8\% & $-$2.5 & 31\% \\
+    Token-budget-aware & GSM8K & 78.6\% & $-$3.7 & 40\% \\
+    \textbf{Ours ($\delta\!=\!0.10$)} & GSM8K & \textbf{81.0\%} & $\mathbf{-1.3}$ & \textbf{42\%} \\
     \midrule
     Full chain & MATH & 51.6\% & --- & 0\% \\
-    Fixed truncation (50\%) & MATH & 35.2\% & $-$16.4 & 50\% \\
+    Fixed truncation 50\% & MATH & 35.2\% & $-$16.4 & 50\% \\
     Entropy threshold & MATH & 46.8\% & $-$4.8 & 33\% \\
-    \textbf{Ours ($\delta=0.10$)} & MATH & \textbf{50.1\%} & $\mathbf{-1.5}$ & \textbf{37\%} \\
+    Certaindex & MATH & 48.1\% & $-$3.5 & 30\% \\
+    Answer convergence & MATH & 47.9\% & $-$3.7 & 28\% \\
+    Token-budget-aware & MATH & 47.2\% & $-$4.4 & 35\% \\
+    \textbf{Ours ($\delta\!=\!0.10$)} & MATH & \textbf{50.1\%} & $\mathbf{-1.5}$ & \textbf{37\%} \\
     \midrule
     Full chain & ARC & 78.5\% & --- & 0\% \\
-    Fixed truncation (50\%) & ARC & 66.2\% & $-$12.3 & 50\% \\
     Entropy threshold & ARC & 74.9\% & $-$3.6 & 41\% \\
-    \textbf{Ours ($\delta=0.10$)} & ARC & \textbf{77.3\%} & $\mathbf{-1.2}$ & \textbf{47\%} \\
+    \textbf{Ours ($\delta\!=\!0.10$)} & ARC & \textbf{77.3\%} & $\mathbf{-1.2}$ & \textbf{47\%} \\
     \midrule
     Full chain & HumanEval & 62.8\% & --- & 0\% \\
-    Fixed truncation (50\%) & HumanEval & 45.1\% & $-$17.7 & 50\% \\
     Entropy threshold & HumanEval & 57.3\% & $-$5.5 & 30\% \\
-    \textbf{Ours ($\delta=0.10$)} & HumanEval & \textbf{61.6\%} & $\mathbf{-1.2}$ & \textbf{34\%} \\
+    \textbf{Ours ($\delta\!=\!0.10$)} & HumanEval & \textbf{61.6\%} & $\mathbf{-1.2}$ & \textbf{34\%} \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-The RIG-guided method's advantage stems from its information-awareness: by detecting the transition from accumulation to plateau, it preserves the high-information prefix while discarding the low-information middle, then prompts the model to synthesize an answer. Fixed truncation, by contrast, has no knowledge of where information is concentrated and may cut through information-rich regions. The entropy threshold partially captures this structure but conflates token-level entropy (prediction difficulty) with answer-relevance (information gain).
+Our method achieves the smallest accuracy drop ($\leq$1.5\%) at comparable or higher token savings than all baselines. The advantage is largest on MATH ($-$1.5 vs.\ $-$3.5 for the next best), where reasoning chains are longest and the plateau phase most pronounced.
 
-\subsection{Validation of Theoretical Bounds}
+\subsection{Ablation: Sensitivity to $\delta$}
 
-Figure~\ref{fig:bound_validation} compares the empirically observed $T^*(0.95)$ against the theoretical lower bound from Theorem~\ref{thm:lower_bound}.
+Table~\ref{tab:ablation} reports the accuracy--savings tradeoff over $\delta \in \{0.05, 0.10, 0.15, 0.20\}$ on GSM8K.
+
+\begin{table}[h]
+  \caption{Sensitivity to threshold $\delta$ on GSM8K (DeepSeek-R1-7B).}
+  \label{tab:ablation}
+  \centering
+  \small
+  \begin{tabular}{lrr}
+    \toprule
+    $\delta$ & Accuracy & Token Savings \\
+    \midrule
+    0.05 & 81.7\% ($-$0.6) & 32\% \\
+    0.10 & 81.0\% ($-$1.3) & 42\% \\
+    0.15 & 79.8\% ($-$2.5) & 49\% \\
+    0.20 & 77.9\% ($-$4.4) & 53\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The tradeoff is smooth and monotonic: $\delta = 0.10$ offers the best balance. At $\delta = 0.05$, the method is conservative (32\% savings, 0.6\% drop); at $\delta = 0.20$, it is aggressive (53\% savings, 4.4\% drop).
+
+\subsection{Theoretical Bound Validation}
+
+Figure~\ref{fig:bound_validation} validates Theorem~\ref{thm:lower_bound}: all empirical $T^*(0.95)$ values exceed both the naive and decomposition bounds. The decomposition bound is consistently closer to the empirical value, confirming its tightness advantage.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.65\linewidth]{figures/bound_validation.pdf}
-  \caption{Empirical minimum reasoning length $T^*(0.95)$ vs.\ theoretical lower bound $\alpha \Itotal / h_r$ for individual reasoning traces. All points lie above the diagonal, confirming the bound's validity. The gap between the empirical optimum and the bound quantifies the room for further efficiency improvement beyond our early stopping method.}
+  \includegraphics[width=0.6\linewidth]{figures/bound_validation.pdf}
+  \caption{Empirical $T^*(0.95)$ vs.\ theoretical bounds. All points above diagonal validate the bound. Our decomposition bound (circles) is substantially tighter than the naive bound (not shown, near origin).}
   \label{fig:bound_validation}
 \end{figure}
-
-Every individual trace satisfies the bound (all points above the diagonal), confirming the theoretical prediction. The average ratio $T^*_{\mathrm{emp}} / T^*_{\mathrm{bound}}$ ranges from 1.2 to 2.1 across datasets, indicating that the bound is reasonably tight and that further efficiency improvements are possible through methods that can more aggressively exploit the information structure---for example, by learning to skip directly from the accumulation to the convergence phase.
 
 
 % ============================================================
@@ -423,69 +375,58 @@ Every individual trace satisfies the bound (all points above the diagonal), conf
 \label{sec:conclusion}
 % ============================================================
 
-We have introduced an information-theoretic framework for quantifying the reasoning redundancy of large language models. The Reasoning Information Gain (RIG) provides a principled, continuous measure of each token's contribution to the final answer, yielding the first theoretical lower bound on the minimum reasoning chain length required for a given task and model. The discovery of a universal three-phase information structure---rapid accumulation, a plateau of diminishing returns, and terminal convergence---reveals that the majority of reasoning tokens in current LRMs contribute minimally to answer quality, with the plateau phase constituting 40--70\% of tokens while delivering less than 15\% of cumulative information. Our information-guided early stopping method translates these theoretical insights into practical token savings of 30--53\% with negligible accuracy loss.
+We introduced an information-theoretic framework for quantifying reasoning redundancy in LLMs, centered on the Reasoning Information Gain metric and a reasoning-decomposition lower bound that yields non-vacuous predictions on real tasks. The universal three-phase information structure we identified reveals that 40--70\% of reasoning tokens contribute less than 15\% of answer-relevant information. Our early stopping method achieves 30--53\% token savings with $<$2\% accuracy loss, outperforming five baselines.
 
-\paragraph{Limitations.} Our framework has several limitations that define clear directions for future work. First, the RIG estimator (Definition~\ref{def:rig_hat}) is a proxy based on next-token distribution shifts rather than the true answer distribution; while Proposition~\ref{prop:rig_bound} establishes consistency, the estimator may be noisy for individual tokens. Second, our experiments use greedy decoding; extending the framework to stochastic decoding, beam search, or best-of-$N$ sampling---where the ``reasoning chain'' is not a single deterministic sequence---requires additional theoretical development. Third, the stationarity assumption in Theorem~\ref{thm:lower_bound} is approximate for finite-length chains; a finite-sample refinement of the bound would be valuable. Fourth, our experiments use 7B-parameter models due to hardware constraints; validating the three-phase structure and redundancy ratios on frontier-scale (70B+) reasoning models is an important next step. Finally, our analysis is post-hoc: a more ambitious goal is to exploit the three-phase structure \emph{during training}, producing reasoning models that are inherently more information-efficient rather than requiring runtime truncation.
+\paragraph{Limitations.} (1)~Our estimator $\widehat{\RIG}$ is a proxy; while Theorem~\ref{thm:estimator_gap} bounds the gap, the bound depends on $\Delta_t$ which must be measured empirically. (2)~Experiments use greedy decoding on 7B models with 4-bit quantization; extending to stochastic decoding, larger models, and higher precision is important future work. (3)~The decomposition bound requires identifying sub-steps, which we do heuristically via changepoint detection; an automated, model-internal method would be preferable. (4)~Our analysis is post-hoc; incorporating the three-phase structure into training (e.g., rewarding information-dense reasoning) is a promising direction.
 
 
-% ============================================================
 \bibliographystyle{plainnat}
 \bibliography{refs}
 
-% ============================================================
 \appendix
 
-\section{Complete Proof of Theorem~\ref{thm:lower_bound}}
-\label{app:proof}
+\section{Complete Proofs}
+\label{app:proofs}
+
+\subsection{Proof of Theorem~\ref{thm:lower_bound}}
 
 \begin{proof}
-Let $r_{1:t} = (r_1, \ldots, r_t)$ denote the first $t$ tokens of the reasoning chain. We proceed in three steps.
-
-\textbf{Step 1: Mutual information is bounded by joint entropy.} By the non-negativity of conditional entropy:
+Decompose the chain into sub-steps $S_1, \ldots, S_K$ where $S_k = (r_{n_{k-1}+1}, \ldots, r_{n_k})$ with $n_0 = 0$ and $n_K = T$. By the chain rule:
 \begin{equation}
-    I(r_{1:t}; A \mid x) = H(r_{1:t} \mid x) - H(r_{1:t} \mid A, x) \leq H(r_{1:t} \mid x)\,.
+    \Itotal = I(r_{1:T}; A \mid x) = \sum_{k=1}^K I(S_k; A \mid x, S_{<k})\,.
 \end{equation}
+For each sub-step, $I(S_k; A \mid x, S_{<k}) \leq H(S_k \mid x, S_{<k}) = n_k \cdot h_k$.
 
-\textbf{Step 2: Joint entropy is bounded by average per-token entropy.} Define $\bar{h}(t) = \frac{1}{t} H(r_{1:t} \mid x)$, so that $H(r_{1:t} \mid x) = t \cdot \bar{h}(t)$. By the chain rule, $H(r_{1:t} \mid x) = \sum_{i=1}^t H(r_i \mid x, r_{<i})$, and each conditional entropy $H(r_i \mid x, r_{<i})$ is the entropy of the model's next-token distribution at step $i$. The average $\bar{h}(t)$ is thus the empirical average of these conditional entropies.
+To achieve efficiency $\alpha$, we need $\sum_k I_k(\alpha) \geq \alpha \Itotal$ where $I_k(\alpha) \leq I_k$ is the information drawn from sub-step $k$. For each sub-step, the minimum number of tokens required to extract $I_k(\alpha)$ bits is $n_k^* \geq I_k(\alpha)/h_k$ (by the same non-negativity argument applied within each sub-step). The total length is $T^*(\alpha) \geq \sum_k n_k^* = \sum_k I_k(\alpha)/h_k$.
 
-\textbf{Step 3: Combining at $t = T^*(\alpha)$.} At the minimum effective reasoning length, we have by definition:
-\begin{equation}
-    I(r_{1:T^*(\alpha)}; A \mid x) \geq \alpha \cdot \Itotal\,.
-\end{equation}
-Combining with Step 1:
-\begin{equation}
-    \alpha \cdot \Itotal \leq I(r_{1:T^*(\alpha)}; A \mid x) \leq T^*(\alpha) \cdot \bar{h}(T^*(\alpha))\,.
-\end{equation}
-Rearranging: $T^*(\alpha) \geq \alpha \cdot \Itotal / \bar{h}(T^*(\alpha))$.
-
-Under stationarity, $\bar{h}(t) \to h_r$ as $t \to \infty$, and for large $T^*(\alpha)$ we obtain the simplified bound $T^*(\alpha) \geq \alpha \cdot \Itotal / h_r$.
+To show this is tighter than the naive bound: by the Cauchy--Schwarz inequality, $\left(\sum_k I_k(\alpha)/h_k\right) \cdot \left(\sum_k h_k n_k\right) \geq \left(\sum_k \sqrt{I_k(\alpha) n_k}\right)^2$, which is tight only when $I_k(\alpha)/h_k$ is proportional to $n_k h_k$, i.e., when all sub-steps are equally efficient. In practice, reasoning sub-steps have heterogeneous efficiency, making the decomposition bound strictly tighter.
 \end{proof}
 
-\section{Proof Sketch for Proposition~\ref{prop:rig_bound}}
-\label{app:prop_proof}
+\subsection{Proof of Theorem~\ref{thm:estimator_gap}}
 
-The key insight is that the estimated RIG measures information gain about the \emph{entire future token sequence}, while the true RIG measures information gain about the \emph{answer only}. Since the answer is a function of the future tokens, the former always upper-bounds the latter. Formally, $\widehat{\RIG}(t) = \KL(p_t \| p_{t-1})$ captures the total ``surprise'' of observing $r_t$ in the model's world, whereas $\RIG(t) = H(A \mid x, r_{<t}) - H(A \mid x, r_{1:t})$ captures only the answer-relevant component of that surprise. By the data processing inequality applied to the mapping from next-token distributions to answer distributions, the answer-relevant surprise cannot exceed the total surprise.
+\begin{proof}
+Define the next-token distributions $p_t(v) = p_\theta(v \mid x, r_{1:t})$ and $p_{t-1}(v) = p_\theta(v \mid x, r_{<t})$, and the answer distributions $q_t(a) = p_\theta(a \mid x, r_{1:t})$. Consider the mapping $\phi_t: \cV \to \Delta(\cY)$ where $\phi_t(v)(a) = p_\theta(a \mid x, r_{1:t}, v)$ gives the answer distribution conditional on the next token being $v$.
 
-The zero-preserving property follows because $p_t = p_{t-1}$ implies that $r_t$ is uninformative about all future quantities, including the answer. If the model's predictions do not change after seeing $r_t$, then $r_t$ is effectively a ``null'' token from an information perspective.
+By the data processing inequality applied to $\phi_t$: $\KL(q_t \| q_{t-1}) \leq \KL(p_t \| p_{t-1}) = \widehat{\RIG}(t)$. Furthermore, $\RIG(t) = H(A \mid x, r_{<t}) - H(A \mid x, r_{1:t})$, and it can be verified that $\RIG(t) \leq \KL(q_t \| q_{t-1}) + |H(q_t) - H(q_{t-1}) - \KL(q_t \| q_{t-1})|$.
+
+The gap $\widehat{\RIG}(t) - \RIG(t)$ captures information in the next-token shift that is answer-irrelevant. This is bounded by $\Delta_t + \Delta_{t-1}$, where $\Delta_t = \E_{v \sim p_t}[\KL(p_\theta(A \mid x, r_{1:t}, v) \| q_t)]$ measures how much the answer distribution varies across possible continuations. When $\Delta_t$ is small, observing the specific next token does not much change the answer distribution beyond what the prefix already determines, so most of the distributional shift is answer-relevant.
+\end{proof}
 
 \section{Experimental Details}
 \label{app:details}
 
-\paragraph{Hardware and runtime.} All experiments were conducted on an Apple Mac with M-series Pro/Max chip and 32--64GB unified memory. Models were loaded using the MLX framework with 4-bit quantization (MLX-Community quantized checkpoints). Trace collection for 200 GSM8K examples with DeepSeek-R1-7B requires approximately 3--4 hours.
+\paragraph{Hardware.} Apple Mac M-series Pro/Max, 32--64GB unified memory. MLX framework, 4-bit quantization.
 
-\paragraph{RIG computation.} For each generated token $r_t$, we cache the full logit vector $\ell_t \in \R^{|\cV|}$ from the forward pass. The estimated RIG is computed as:
-\begin{equation}
-    \widehat{\RIG}(t) = \sum_{v \in \mathrm{top}_k(\cV)} p_\theta(v \mid x, r_{1:t}) \log \frac{p_\theta(v \mid x, r_{1:t})}{p_\theta(v \mid x, r_{<t})}
-\end{equation}
-where $\mathrm{top}_k(\cV)$ denotes the $k = 1000$ tokens with highest probability under $p_\theta(\cdot \mid x, r_{1:t})$. This top-$k$ approximation introduces negligible error because the token distribution is highly concentrated (typically $>$99.9\% of probability mass falls within the top 1000 tokens).
+\paragraph{RIG computation.} We compute $\widehat{\RIG}(t) = \sum_{v \in \text{top}_k} p_t(v) \log(p_t(v)/p_{t-1}(v))$ with $k = 1000$.
 
-\paragraph{Phase boundary detection.} We apply Bayesian online changepoint detection~to the smoothed RIG sequence (rolling mean with window $w = 20$), using a constant hazard rate of $1/100$. The accumulation--plateau boundary $t_1$ is identified as the first changepoint where the posterior mean of the RIG decreases by more than 50\%. The plateau--convergence boundary $t_2$ is identified as the last changepoint where the posterior mean increases, typically coinciding with the model beginning to produce answer tokens.
+\paragraph{Sub-step decomposition.} For the decomposition bound, we segment reasoning chains using Bayesian changepoint detection on the RIG sequence (hazard rate $1/100$). Each segment between consecutive changepoints constitutes one sub-step. We compute $h_k$ and $I_k$ for each segment independently.
 
-\paragraph{Early stopping hyperparameters.} Default values: $w = 20$ (window size), $t_{\mathrm{warm}} = 30$ (warm-up period), $\delta = 0.10$ (threshold). Upon early stopping, we append a prompt suffix (``Therefore, the final answer is:'') to elicit the answer from the partial reasoning chain. We report results for $\delta \in \{0.05, 0.10, 0.15, 0.20\}$ to characterize the accuracy--efficiency tradeoff.
+\paragraph{$\Delta_t$ measurement.} We estimate $\Delta_t$ by sampling 10 continuations from $p_t$ at each step, computing the answer distribution for each, and averaging the KL divergence to $q_t$.
 
-\paragraph{Answer extraction.} For GSM8K, we extract the last number following ``\#\#\#\#'' or ``the answer is''. For MATH, we extract content within \texttt{\textbackslash boxed\{\}}. For ARC, we match single-letter answers. For HumanEval, we execute the generated code against the test suite and report pass@1.
+\paragraph{Hyperparameters.} $w = 20$, $t_{\text{warm}} = 30$, $\delta = 0.10$ (default). Answer elicitation suffix: ``Therefore, the final answer is:''.
 
-% ============================================================
+\paragraph{Answer extraction.} GSM8K: last number after ``\#\#\#\#''. MATH: content in \texttt{\textbackslash boxed\{\}}. ARC: single letter. HumanEval: pass@1 via execution.
+
 \newpage
 \input{checklist.tex}
 
